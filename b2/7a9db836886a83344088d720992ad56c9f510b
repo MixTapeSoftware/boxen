@@ -1,0 +1,19 @@
+docs/validation.md
+  s_d53ce3c86a45a2::t_74d77c128e30d3 7,26,35
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "b27a9db836886a83344088d720992ad56c9f510b",
+  "prompts": {},
+  "sessions": {
+    "s_d53ce3c86a45a2": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "66c1b179-4abf-4337-9d19-07e2b97a50d1",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "<<chadfennell@users.noreply.github.com>>"
+    }
+  }
+}
