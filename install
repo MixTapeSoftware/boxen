@@ -1,0 +1,93 @@
+#!/usr/bin/env bash
+# Host setup: link agent-sbx into ~/.local/bin and, when chosen, install
+# Chadmux, Chad's opinionated tmux config. Bash 3.2 compatible.
+set -euo pipefail
+PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+log()  { printf '[+] %s\n' "$*"; }
+warn() { printf '[!] %s\n' "$*" >&2; }
+die()  { printf 'install: %s\n' "$*" >&2; exit 1; }
+
+# Chadmux: ask (interactive only), yes, or no.
+CHADMUX=ask
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --chadmux) CHADMUX=yes; shift ;;
+    --no-chadmux) CHADMUX=no; shift ;;
+    -h|--help)
+      printf 'Usage: %s [--chadmux|--no-chadmux]\n' "$(basename "$0")"
+      printf '  --chadmux     Install the Chadmux tmux config on this host without asking\n'
+      printf '  --no-chadmux  Skip the Chadmux question\n'
+      exit 0 ;;
+    *) die "Unknown option: $1" ;;
+  esac
+done
+
+source "$PROJECT_DIR/lib/chadmux.sh"
+
+bin_dir="$HOME/.local/bin"
+target="$bin_dir/agent-sbx"
+mkdir -p "$bin_dir"
+chmod +x "$PROJECT_DIR/agent-sbx"
+if [[ -L "$target" ]]; then
+  rm "$target"
+elif [[ -e "$target" ]]; then
+  reply=""
+  if [[ -t 0 ]]; then read -rp "$target exists and is not a link. Replace it? [y/N] " reply || reply=""; fi
+  if [[ "$reply" =~ ^[Yy]$ ]]; then
+    rm "$target"
+  else
+    warn "Keeping $target; agent-sbx was not linked"
+    target=""
+  fi
+fi
+if [[ -n "$target" ]]; then
+  # The launcher resolves the link, so lib/ and kits/ stay in this checkout.
+  ln -s "$PROJECT_DIR/agent-sbx" "$target"
+  log "Linked $target -> $PROJECT_DIR/agent-sbx"
+fi
+
+# Chadmux is off unless chosen, and an existing host tmux config is always
+# left alone. It is a host setup; sandboxes do not get it.
+state="$(chadmux_status)"
+case "$state" in
+  installed)
+    log 'Chadmux is already installed on this host' ;;
+  existing\ *)
+    if [[ "$CHADMUX" != no ]]; then log "Keeping your tmux config at ${state#existing } (Chadmux not installed)"; fi ;;
+  missing\ *)
+    if [[ "$CHADMUX" != no ]]; then warn "Chadmux needs ${state#missing } on this host; skipping"; fi ;;
+  incomplete)
+    # Chosen before, but TPM is missing; finishing touches only ~/.tmux/plugins.
+    if [[ "$CHADMUX" != no ]]; then
+      warn 'Chadmux config is installed, but TPM is missing'
+      if [[ "$CHADMUX" == ask && -t 0 ]]; then
+        read -rp 'Finish Chadmux setup by installing TPM? [Y/n] ' reply || reply=""
+        if [[ ! "$reply" =~ ^[Nn]$ ]]; then CHADMUX=yes; fi
+      fi
+      if [[ "$CHADMUX" == yes ]]; then
+        (chadmux_install) || warn 'TPM setup failed; run ./install --chadmux again to retry'
+      else
+        warn 'Run ./install --chadmux to finish TPM setup'
+      fi
+    fi ;;
+  absent)
+    if [[ "$CHADMUX" == ask && -t 0 ]]; then
+      echo
+      echo "Chadmux is Chad's opinionated tmux config, with TPM plugins for the Dracula"
+      echo "theme, tmux-yank and vim-tmux-navigator."
+      read -rp 'Install Chadmux tmux config on this host? [y/N] ' reply || reply=""
+      if [[ "$reply" =~ ^[Yy]$ ]]; then CHADMUX=yes; fi
+    fi
+    if [[ "$CHADMUX" == yes ]]; then
+      (chadmux_install) || warn 'Chadmux install failed; agent-sbx is still installed'
+    elif [[ "$CHADMUX" == ask ]]; then
+      log 'Chadmux not installed; run ./install --chadmux to add it'
+    fi ;;
+esac
+
+if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
+  warn "$bin_dir is not in your PATH. Add to ~/.zshrc or ~/.bashrc:"
+  printf '  export PATH="$HOME/.local/bin:$PATH"\n'
+fi
+log 'Done. Next: agent-sbx doctor'

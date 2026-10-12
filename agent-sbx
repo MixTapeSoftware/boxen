@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# Small host-side adapter for local Docker Sandboxes. Bash 3.2 compatible.
+set -euo pipefail
+# Resolve symlinks: a link in ~/.local/bin must still find lib/ and kits/ next
+# to the real file. macOS 12 and earlier have no realpath; follow links by hand.
+resolve() {
+  if command -v realpath >/dev/null 2>&1; then realpath "$1"; return; fi
+  local p="$1" link
+  while [[ -L "$p" ]]; do
+    link="$(readlink "$p")"
+    case "$link" in /*) p="$link" ;; *) p="$(dirname "$p")/$link" ;; esac
+  done
+  printf '%s\n' "$p"
+}
+PROJECT_DIR="$(cd "$(dirname "$(resolve "${BASH_SOURCE[0]}")")" && pwd)"
+SBX_BIN="${SBX_BIN:-sbx}"
+source "$PROJECT_DIR/lib/prompt.sh"
+source "$PROJECT_DIR/lib/cli.sh"
+source "$PROJECT_DIR/lib/tui.sh"
+main "$@"

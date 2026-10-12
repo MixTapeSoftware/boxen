@@ -1,0 +1,28 @@
+schemaVersion: '2'
+kind: mixin
+name: agent-sbx-tailscale
+displayName: Per-sandbox userspace Tailscale
+description: Per-sandbox userspace Tailscale
+permissions:
+  network:
+    allow:
+    - tailscale.com
+    - pkgs.tailscale.com
+    - '*.tailscale.com'
+    - '*.tailscale.io'
+setup:
+  install:
+  - command: bash /home/agent/.local/share/agent-sbx/tailscale-install.sh
+    user: '0'
+    description: tailscale-install
+  startup:
+  - command:
+    - bash
+    - /home/agent/.local/share/agent-sbx/tailscale-start.sh
+    user: '0'
+    background: true
+    description: Start userspace tailscaled
+volumes:
+- path: /var/lib/tailscale
+  size: 128m
+  mode: '0700'

@@ -1,0 +1,31 @@
+schemaVersion: "2"
+kind: sandbox
+name: agent-sbx-grok
+displayName: Grok Build
+description: Grok Build with Docker's credential proxy
+extends: shell
+sandbox:
+  image: docker/sandbox-templates:shell-docker
+  entrypoint: [grok, --yolo, --no-auto-update]
+permissions:
+  network:
+    allow: [x.ai, api.x.ai, auth.x.ai, cli-chat-proxy.grok.com]
+credentials:
+  - service: xai
+    apiKey:
+      name: XAI_API_KEY
+      proxyManaged: true
+      inject:
+        - domain: api.x.ai
+          header: Authorization
+          format: Bearer %s
+setup:
+  install:
+    - command: bash /home/agent/.local/share/agent-sbx/grok.sh
+      user: "1000"
+      description: Install Grok Build
+agentInstructions:
+  filename: AGENTS.md
+  content: |
+    Grok Build runs in a Docker sandbox. Credentials are configured with
+    sbx secret set xai on the host and injected by Docker's proxy.

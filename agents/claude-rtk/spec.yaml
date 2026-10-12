@@ -1,0 +1,12 @@
+schemaVersion: "2"
+kind: sandbox
+name: agent-sbx-claude-rtk
+displayName: Claude with RTK
+description: Docker Claude workload with an additional RTK settings file
+extends: claude
+sandbox:
+  entrypoint:
+    - claude
+    - --dangerously-skip-permissions
+    - --settings
+    - /home/agent/.config/agent-sbx/claude-rtk.json

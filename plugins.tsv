@@ -1,0 +1,16 @@
+Plugin	What it installs
+docker	Docker Engine and Compose; native to every sandbox
+fzf-bat	fzf and bat through mise, with f and gdiff shell helpers
+just	just through mise
+glow	Glow through mise
+mermaid-ascii	mermaid-ascii 1.4.0
+overmind	Overmind 2.5.1 and its tmux runtime dependency
+cubic	cubic CLI (interactive account login on first use)
+chromium	Playwright plus a matched Chrome for Testing and ChromeDriver
+nvchad	chadfennell/nvChad, Neovim, tree-sitter parsers and six Mason LSPs
+rtkplus	RTK CLI, Codex hooks and separate Claude settings
+matt-pocock-skills	Matt Pocock's agent skills, inside the sandbox
+tailscale	Userspace daemon, per-sandbox identity and state volume
+supabase-serve	Seven tailnet HTTPS routes for an app and Supabase; adds tailscale
+gh-auth	Git credential helper; token from agent-sbx auth github
+1pass	op CLI; host op:// references through agent-sbx auth 1password

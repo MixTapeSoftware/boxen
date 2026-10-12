@@ -1,0 +1,17 @@
+schemaVersion: '2'
+kind: mixin
+name: agent-sbx-workspace
+displayName: Workspace volume
+description: Keeps a copied or empty workspace on a volume so container recreation, such as sbx kit add, keeps it
+setup:
+  install:
+  - command: bash /home/agent/.local/share/agent-sbx/workspace.sh
+    user: '0'
+    description: workspace
+# sbx kit add recreates the container and keeps only kit volumes, bind mounts
+# and --clone working trees. Volumes are created with the sandbox, so this kit
+# protects only sandboxes created with it.
+volumes:
+- path: /home/agent/workspace
+  size: 20g
+  mode: '0755'

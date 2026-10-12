@@ -1,0 +1,10 @@
+schemaVersion: '2'
+kind: mixin
+name: agent-sbx-glow
+displayName: Glow Markdown viewer
+description: Glow Markdown viewer
+setup:
+  install:
+  - command: bash /home/agent/.local/share/agent-sbx/glow.sh
+    user: '1000'
+    description: glow

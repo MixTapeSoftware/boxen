@@ -1,0 +1,19 @@
+schemaVersion: '2'
+kind: mixin
+name: agent-sbx-chromium
+displayName: Playwright and matched Chrome for Testing plus ChromeDriver
+description: Playwright and matched Chrome for Testing plus ChromeDriver
+permissions:
+  network:
+    allow:
+    - cdn.playwright.dev
+    - playwright.download.prss.microsoft.com
+    - googlechromelabs.github.io
+setup:
+  install:
+  - command: bash /home/agent/.local/share/agent-sbx/chromium-root.sh
+    user: '0'
+    description: chromium-root
+  - command: bash /home/agent/.local/share/agent-sbx/chromium.sh
+    user: '1000'
+    description: chromium

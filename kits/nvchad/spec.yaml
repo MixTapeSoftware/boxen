@@ -1,0 +1,20 @@
+schemaVersion: '2'
+kind: mixin
+name: agent-sbx-nvchad
+displayName: Chadception Neovim configuration
+description: Chadception Neovim configuration
+permissions:
+  network:
+    allow:
+    - pypi.org
+    - files.pythonhosted.org
+    - hex.pm
+    - repo.hex.pm
+    - builds.hex.pm
+    - elixir-lang.org
+    - registry.npmmirror.com
+setup:
+  install:
+  - command: bash /home/agent/.local/share/agent-sbx/nvchad.sh
+    user: '1000'
+    description: nvchad

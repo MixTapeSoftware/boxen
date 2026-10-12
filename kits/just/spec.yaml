@@ -1,0 +1,10 @@
+schemaVersion: '2'
+kind: mixin
+name: agent-sbx-just
+displayName: just task runner
+description: just task runner
+setup:
+  install:
+  - command: bash /home/agent/.local/share/agent-sbx/just.sh
+    user: '1000'
+    description: just

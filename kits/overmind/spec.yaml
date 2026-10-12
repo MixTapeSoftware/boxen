@@ -1,0 +1,10 @@
+schemaVersion: '2'
+kind: mixin
+name: agent-sbx-overmind
+displayName: Overmind process manager
+description: Overmind process manager
+setup:
+  install:
+  - command: bash /home/agent/.local/share/agent-sbx/overmind.sh
+    user: '1000'
+    description: overmind

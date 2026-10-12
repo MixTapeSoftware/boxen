@@ -1,0 +1,528 @@
+"""Exercise host commands without a Docker account or an installed hypervisor."""
+import base64
+import io
+import json
+import os
+import pty
+import select
+from pathlib import Path
+import shutil
+import subprocess
+import tarfile
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+KITS = "fzf-bat just glow mermaid-ascii overmind cubic chromium nvchad rtkplus matt-pocock-skills tailscale supabase-serve gh-auth 1pass".split()
+
+FAKE_SBX = """#!/usr/bin/env python3
+import base64, json, os, sys
+args = sys.argv[1:]
+entry = {'args': args}
+if '-i' in args or args[:2] == ['secret', 'set']:
+    entry['stdin_b64'] = base64.b64encode(sys.stdin.buffer.read()).decode()
+with open(os.environ['FAKE_SBX_LOG'], 'a') as f:
+    f.write(json.dumps(entry) + '\\n')
+state = os.environ['FAKE_SBX_STATE']
+names = json.load(open(state)) if os.path.exists(state) else []
+running = set(os.environ.get('FAKE_SBX_RUNNING', '').split(','))
+def save():
+    json.dump(names, open(state, 'w'))
+if args[0] == 'ls':
+    if '--quiet' in args:
+        print('\\n'.join(names))
+    elif '--json' in args:
+        print(json.dumps({'sandboxes': [{'name': n, 'status': 'running' if n in running else 'stopped'} for n in names]}))
+elif args[0] == 'version':
+    print('sbx version: v' + os.environ.get('FAKE_SBX_VERSION', '0.47.0') + ' 0411f50')
+elif args[0] == 'create':
+    if os.environ.get('FAKE_CREATE_FAIL'):
+        sys.exit(7)
+    names.append(args[args.index('--name') + 1]); save()
+elif args[0] == 'run' and '--detached' in args and os.environ.get('FAKE_RUN_FAIL'):
+    sys.exit(3)
+elif args[0] == 'rm' and not os.environ.get('FAKE_RM_DECLINE'):
+    names.remove(args[1]); save()
+elif args[:2] == ['kit', 'validate'] and args[2].endswith('/glow'):
+    sys.exit(1)
+"""
+
+
+class CLI(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory(prefix="agent-sbx-test-")
+        self.addCleanup(self.temp.cleanup)
+        self.directory = Path(self.temp.name)
+        self.log = self.directory / "calls.jsonl"
+        self.state = self.directory / "sandboxes.json"
+        self.fake = self.directory / "bin" / "sbx"
+        self.fake.parent.mkdir()
+        self.fake.write_text(FAKE_SBX)
+        self.fake.chmod(0o755)
+        self.project = self.directory / "project"
+        self.project.mkdir()
+        self.env = dict(
+            os.environ, SBX_BIN=str(self.fake), FAKE_SBX_LOG=str(self.log),
+            FAKE_SBX_STATE=str(self.state), AGENT_SBX_STATE_DIR=str(self.directory / "state"),
+            AGENT_SBX_SKIP_MEMORY_CHECK="1",
+        )
+        # Prevent real global Git identity/configuration from affecting tests.
+        self.env["GIT_CONFIG_GLOBAL"] = str(self.directory / "gitconfig")
+        self.env["GIT_CONFIG_NOSYSTEM"] = "1"
+
+    def sandboxes(self, *names):
+        self.state.write_text(json.dumps(list(names)))
+
+    def cli(self, *args, stdin="", ok=True, cwd=None, launcher=None):
+        result = subprocess.run(
+            [os.environ.get("TEST_BASH", "bash"), str(launcher or ROOT / "agent-sbx"), *args],
+            env=self.env, input=stdin, text=True, capture_output=True, timeout=20,
+            cwd=cwd or self.project,
+        )
+        if ok:
+            self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        else:
+            self.assertNotEqual(result.returncode, 0, result.stdout)
+        return result
+
+    def calls(self, everything=False):
+        if not self.log.exists():
+            return []
+        calls = [json.loads(line) for line in self.log.read_text().splitlines()]
+        return calls if everything else [c for c in calls if c["args"][0] not in ("ls", "version")]
+
+    def kits(self, args):
+        return [Path(args[i + 1]).name for i, a in enumerate(args) if a == "--kit"]
+
+    # --- create ---------------------------------------------------------------
+
+    def test_no_copy_is_mountless_and_keeps_the_workspace_volume(self):
+        self.cli("create", "scratch", "--no-copy", "--plugins", "none")
+        calls = self.calls()
+        self.assertEqual(calls[0]["args"][-1], "shell")
+        self.assertIn("AGENT_SBX_PLUGINS=", calls[0]["args"])
+        self.assertEqual(self.kits(calls[0]["args"]), ["core", "workspace"])
+        self.assertEqual(calls[1]["args"], ["run", "--detached", "--name", "scratch"])
+        self.assertFalse(any("tar" in c["args"] for c in calls))
+
+    def test_default_copies_the_current_directory(self):
+        (self.project / "file").write_text("x")
+        self.cli("create", "box", "--plugins", "none")
+        calls = self.calls()
+        self.assertNotIn(str(self.project), calls[0]["args"])
+        self.assertIn("workspace", self.kits(calls[0]["args"]))
+        archive = tarfile.open(fileobj=io.BytesIO(base64.b64decode(calls[3]["stdin_b64"])))
+        self.assertEqual(archive.extractfile("./file").read(), b"x")
+
+    def test_refuses_to_copy_home_or_root(self):
+        home = self.directory / "home"
+        home.mkdir()
+        self.env["HOME"] = str(home)
+        self.cli("create", "box", cwd=home, ok=False)
+        self.cli("create", "box", "-p", "/", ok=False)
+        self.assertEqual(self.calls(), [])
+
+    def test_default_plugins_and_resources(self):
+        self.cli("create", "box", "--no-copy")
+        args = self.calls()[0]["args"]
+        self.assertEqual(self.kits(args), ["core", "workspace", "matt-pocock-skills"])
+        self.assertIn("AGENT_SBX_PLUGINS=matt-pocock-skills", args)
+        self.assertEqual(args[args.index("--memory") + 1], "4g")
+        self.assertLessEqual(int(args[args.index("--cpus") + 1]), 4)
+
+    def test_full_preset_is_ordered_and_has_no_chadmux(self):
+        self.cli("create", "full", "--no-copy", "--plugins", "all")
+        args = self.calls()[0]["args"]
+        kits = self.kits(args)
+        self.assertEqual(kits, ["core", "workspace"] + KITS)
+        self.assertNotIn("chadmux", " ".join(args))
+        self.assertEqual(args[args.index("--skills") + 1], "off")
+
+    def test_dependency_added_and_duplicate_selection_deduplicated(self):
+        self.cli("create", "routes", "--no-copy", "--plugins", "supabase-serve,supabase-serve")
+        args = self.calls()[0]["args"]
+        self.assertEqual(self.kits(args).count("tailscale"), 1)
+        self.assertEqual(self.kits(args).count("supabase-serve"), 1)
+
+    def test_plugin_flags_add_to_the_defaults(self):
+        self.cli("create", "box", "--no-copy", "--tailscale", "--gh-token", "--1pass", "--claude", "--no-tui")
+        args = self.calls()[0]["args"]
+        self.assertEqual(self.kits(args), ["core", "workspace", "matt-pocock-skills", "tailscale", "gh-auth", "1pass"])
+        self.assertEqual(args[-1], "claude")
+
+    def test_one_agent_per_sandbox(self):
+        self.cli("create", "box", "--no-copy", "--agent", "claude", "--agent", "codex", ok=False)
+        self.cli("create", "box", "--no-copy", "--claude", "--codex", ok=False)
+        self.assertEqual(self.calls(), [])
+        self.cli("create", "box", "--no-copy", "--claude", "--agent", "claude")
+
+    def test_copy_does_not_mount_and_preserves_path_as_one_argument(self):
+        project = self.directory / "my project; literal"
+        project.mkdir()
+        (project / "bytes").write_bytes(bytes(range(256)))
+        (project / ".hidden").write_text("preserved")
+        self.cli("create", "copy", str(project), "--plugins", "none")
+        calls = self.calls()
+        self.assertNotIn(str(project), calls[0]["args"])
+        self.assertEqual(calls[2]["args"], ["exec", "--user", "root", "copy", "install", "-d", "-o", "1000", "-g", "1000", "/home/agent/workspace"])
+        self.assertEqual(calls[3]["args"], ["exec", "-i", "--workdir", "/home/agent/workspace", "copy", "tar", "--no-same-owner", "--warning=no-unknown-keyword", "-xf", "-"])
+        archive = tarfile.open(fileobj=io.BytesIO(base64.b64decode(calls[3]["stdin_b64"])))
+        self.assertEqual(archive.extractfile("./bytes").read(), bytes(range(256)))
+        self.assertEqual(archive.extractfile("./.hidden").read(), b"preserved")
+        self.assertFalse(any(c["args"][0] in ("rm", "prune") for c in calls))
+
+    def test_explicit_mount_has_no_workspace_volume(self):
+        self.cli("create", "mount", str(self.project), "--mode", "mount", "--plugins", "none")
+        args = self.calls()[0]["args"]
+        self.assertEqual(args[-1], str(self.project))
+        self.assertEqual(self.kits(args), ["core"])
+        self.assertFalse(any("tar" in c["args"] for c in self.calls()))
+
+    def test_clone_requires_git_before_any_sbx_mutation(self):
+        self.cli("create", "clone", "--mode", "clone", ok=False)
+        self.assertEqual(self.calls(), [])
+
+    def test_agent_analogs_and_rtk_settings(self):
+        self.cli("create", "claude-test", "--no-copy", "--agent", "claude", "--plugins", "rtkplus")
+        self.assertEqual(self.calls()[0]["args"][-1], str(ROOT / "agents/claude-rtk"))
+        self.log.unlink()
+        self.cli("create", "codex-test", "--no-copy", "--agent", "codex", "--plugins", "none")
+        self.assertEqual(self.calls()[0]["args"][-1], "codex")
+        self.log.unlink()
+        self.cli("create", "grok-test", "--no-copy", "--grok", "--plugins", "none")
+        self.assertEqual(self.calls()[0]["args"][-1], str(ROOT / "agents/grok"))
+
+    def test_nothing_from_the_host_is_mounted_by_default(self):
+        for agent in ("shell", "claude", "codex", "grok"):
+            with self.subTest(agent=agent):
+                self.cli("create", f"{agent}-box", "--agent", agent)
+                args = [c for c in self.calls() if c["args"][0] == "create"][-1]["args"]
+                self.assertEqual(args[args.index("--skills") + 1], "off")
+                self.assertNotIn(str(self.project), args)
+                self.assertNotIn("--clone", args)
+        self.assertIn("Host mounts: none", self.cli("create", "preview", "--dry-run").stdout)
+
+    def test_host_mounts_are_opt_in(self):
+        self.cli("create", "skills", "--no-copy", "--skills", "readonly")
+        args = self.calls()[0]["args"]
+        self.assertEqual(args[args.index("--skills") + 1], "readonly")
+        result = self.cli("create", "shared", "--mode", "mount", "--skills", "readwrite", "--dry-run")
+        self.assertIn(f"Host mounts: {self.project.resolve()} (read-write); sbx skills store (readwrite)", result.stdout)
+        self.cli("create", "bad", "--skills", "everything", ok=False)
+
+    def tty(self, *args, keys=b""):
+        """Run in a pseudo-terminal, sending each key once the selector has drawn."""
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.chdir(self.project)
+            bash = os.environ.get("TEST_BASH", "bash")
+            os.execvpe(bash, [bash, str(ROOT / "agent-sbx"), *args], self.env)
+        output = b""
+
+        def read_until(marker):
+            nonlocal output
+            while marker not in output:
+                ready, _, _ = select.select([fd], [], [], 10)
+                if not ready:
+                    self.fail("No output from the selector: " + output.decode(errors="replace"))
+                try:
+                    chunk = os.read(fd, 4096)
+                except OSError:
+                    return False
+                if not chunk:
+                    return False
+                output += chunk
+            return True
+
+        for key in keys:
+            output = b"" if read_until(b"always included") else output
+            os.write(fd, bytes([key]))
+        while read_until(b"\x00never"):
+            pass
+        os.close(fd)
+        _, status = os.waitpid(pid, 0)
+        return output.decode(errors="replace"), os.waitstatus_to_exitcode(status)
+
+    def test_selector_chooses_an_agent_and_kits(self):
+        # Rows: shell, claude, codex, grok, then kits from fzf-bat on.
+        output, code = self.tty("create", "box", "--no-copy", "--dry-run", keys=b"j jjj \r")
+        self.assertEqual(code, 0, output)
+        self.assertIn("Plugins: fzf-bat,matt-pocock-skills", output)
+        self.assertIn("AGENT_SBX_AGENT=claude", output)
+
+    def test_selector_quits_without_creating(self):
+        output, code = self.tty("create", "box", "--no-copy", keys=b"q")
+        self.assertNotEqual(code, 0)
+        self.assertIn("Aborted; nothing was created", output)
+        self.assertEqual(self.calls(everything=True), [])
+
+    def test_selector_is_skipped_when_plugins_are_chosen(self):
+        for flag in ("--plugins", "--no-tui"):
+            with self.subTest(flag=flag):
+                args = ("--plugins", "none") if flag == "--plugins" else ("--no-tui",)
+                output, code = self.tty("create", "box", "--no-copy", "--dry-run", *args)
+                self.assertEqual(code, 0, output)
+                self.assertNotIn("choose an agent", output)
+
+    def test_resources_pass_through(self):
+        self.cli("create", "box", "--no-copy", "--cpus", "2", "--memory", "1g")
+        args = self.calls()[0]["args"]
+        self.assertEqual(args[args.index("--cpus") + 1], "2")
+        self.assertEqual(args[args.index("--memory") + 1], "1g")
+
+    def test_memory_guard_stops_before_create(self):
+        meminfo = self.directory / "meminfo"
+        meminfo.write_text("MemTotal: 6000000 kB\nMemAvailable: 2097152 kB\n")
+        self.env.update(AGENT_SBX_MEMINFO=str(meminfo), AGENT_SBX_SKIP_MEMORY_CHECK="0")
+        result = self.cli("create", "box", "--no-copy", ok=False)
+        self.assertIn("2048 MiB of memory is available", result.stderr)
+        self.assertEqual(self.calls(), [])
+        self.cli("create", "box", "--no-copy", "--memory", "512m")
+
+    def test_failed_create_never_reuses_or_deletes_environment(self):
+        self.env["FAKE_CREATE_FAIL"] = "1"
+        self.cli("create", "existing", "--no-copy", ok=False)
+        self.assertEqual(len(self.calls()), 1)
+
+    def test_failure_after_create_explains_recovery(self):
+        self.env["FAKE_RUN_FAIL"] = "1"
+        result = self.cli("create", "half", "--no-copy", ok=False)
+        self.assertIn("was created, but starting it failed", result.stderr)
+        self.assertIn("sbx rm half", result.stderr)
+        self.assertFalse(any(c["args"][0] == "rm" for c in self.calls()))
+
+    def test_env_files_need_acknowledgement(self):
+        (self.project / ".env").write_text("SECRET=1")
+        (self.project / ".env.example").write_text("SECRET=")
+        result = self.cli("create", "box", ok=False)
+        self.assertIn(".env", result.stderr)
+        self.assertNotIn(".env.example", result.stderr)
+        self.assertEqual(self.calls(), [])
+        self.cli("create", "box", "--dry-run")
+        self.assertEqual(self.calls(), [])
+        self.cli("create", "box", "--ack-env")
+
+    def test_invalid_inputs_fail_before_sbx(self):
+        for args in [
+            ("create", "default"),
+            ("create", "bad name"),
+            ("create", "dotted.name"),
+            ("create", "valid", "--plugins", "chadmux"),
+            ("create", "valid", "--plugins", "typo"),
+            ("create", "valid", "--plugins", "codex"),
+            ("create", "valid", "--agent"),
+            ("create", "valid", "--workspace", "/src"),
+            ("create", "valid", "--workspace", "copy"),
+            ("create", "valid", "--from", "base"),
+            ("create", "valid", "--unknown"),
+            ("create", "valid", "--memory", "lots"),
+        ]:
+            with self.subTest(args=args):
+                self.cli(*args, ok=False)
+        self.assertEqual(self.calls(everything=True), [])
+
+    def test_dry_run_does_not_require_sbx(self):
+        self.env["SBX_BIN"] = "/missing/sbx"
+        result = self.cli("create", "preview", "--no-copy", "--dry-run")
+        self.assertIn("Workspace: none", result.stdout)
+        self.assertEqual(self.calls(everything=True), [])
+
+    def test_create_registers_the_sandbox(self):
+        self.cli("create", "box", "--no-copy")
+        self.assertEqual((self.directory / "state/sandboxes").read_text(), "box\n")
+
+    # --- commands that take a name -------------------------------------------
+
+    def test_mistyped_names_never_create(self):
+        self.sandboxes("real")
+        for args in [
+            ("typo",), ("shell", "typo"), ("-s", "typo", "ls"), ("run", "typo"),
+            ("exec", "typo", "true"), ("stop", "typo"), ("check", "typo"),
+            ("net", "typo", "4000"), ("env", "typo", "FOO"), ("update", "typo"),
+            ("delete", "typo"), ("auth", "github", "typo"), ("tailscale", "status", "typo"),
+        ]:
+            with self.subTest(args=args):
+                result = self.cli(*args, stdin="value\n", ok=False)
+                self.assertIn("Nothing was created", result.stderr)
+        self.assertEqual(self.calls(), [])
+        self.assertEqual(json.loads(self.state.read_text()), ["real"])
+
+    def test_run_forwards_agent_arguments(self):
+        self.sandboxes("box")
+        self.cli("run", "box", "--", "--version")
+        self.cli("run", "box", "--version")
+        self.cli("run", "box")
+        self.assertEqual([c["args"] for c in self.calls()], [
+            ["run", "--name", "box", "--", "--version"],
+            ["run", "--name", "box", "--", "--version"],
+            ["run", "--name", "box"],
+        ])
+
+    def test_shell_and_exec_preserve_arguments(self):
+        self.sandboxes("box")
+        self.cli("box")
+        self.cli("shell", "box", "echo a | wc -c")
+        self.cli("-s", "box", "printf", "%s", "$(no expansion)")
+        self.cli("exec", "box", "printf", "%s", "$(no expansion)")
+        calls = [c["args"] for c in self.calls()]
+        self.assertEqual(calls[0], ["exec", "-i", "box", "zsh", "-l"])
+        self.assertEqual(calls[1], ["exec", "-i", "box", "zsh", "-lc", "echo a | wc -c"])
+        self.assertEqual(calls[2][:4], ["exec", "-i", "box", "zsh"])
+        self.assertEqual(calls[2][-1], "printf %s \\$\\(no\\ expansion\\)")
+        self.assertEqual(calls[3], ["exec", "-i", "box", "printf", "%s", "$(no expansion)"])
+
+    def test_with_sudo_is_per_session(self):
+        self.sandboxes("box")
+        self.cli("shell", "--with-sudo", "box")
+        self.assertEqual(self.calls()[0]["args"],
+                         ["exec", "-i", "--user", "root", "box", "/usr/local/bin/agent-sbx-sudo-session", "zsh", "-l"])
+
+    def test_net_maps_ports_to_sbx_ports(self):
+        self.sandboxes("box")
+        self.cli("net", "box", "4000", "3000:8080")
+        self.cli("-n", "box", "-b", "100.64.0.1", "4000")
+        self.cli("net", "box", "-l")
+        self.cli("net", "box", "-r", "4000")
+        self.cli("net", "box", "-r", "all", ok=False)
+        self.assertEqual([c["args"] for c in self.calls()], [
+            ["ports", "box", "--publish", "127.0.0.1:4000:4000", "--publish", "127.0.0.1:3000:8080"],
+            ["ports", "box", "--publish", "100.64.0.1:4000:4000"],
+            ["ports", "box"],
+            ["ports", "box", "--unpublish", "4000:4000"],
+        ])
+
+    def test_env_uses_the_proxy_for_known_services_and_stdin_for_others(self):
+        self.sandboxes("box")
+        secret = "sk-'quoted'-$(syntax)"
+        self.cli("env", "box", "ANTHROPIC_API_KEY", stdin=secret + "\n")
+        self.cli("-e", "box", "CUSTOM_TOKEN", stdin=secret + "\n")
+        self.cli("env", "box", "1BAD", stdin="x\n", ok=False)
+        calls = self.calls()
+        self.assertEqual(calls[0]["args"], ["secret", "set", "--sandbox", "box", "anthropic"])
+        self.assertEqual(base64.b64decode(calls[0]["stdin_b64"]).decode(), secret)
+        self.assertEqual(calls[1]["args"][:5], ["exec", "-i", "box", "sh", "-c"])
+        self.assertEqual(calls[1]["args"][-1], "CUSTOM_TOKEN")
+        line = base64.b64decode(calls[1]["stdin_b64"]).decode()
+        self.assertTrue(line.startswith("export CUSTOM_TOKEN="))
+        self.assertEqual(subprocess.run(["bash", "-c", line + 'printf %s "$CUSTOM_TOKEN"'],
+                                        capture_output=True, text=True).stdout, secret)
+        for call in calls:
+            self.assertNotIn(secret, json.dumps(call["args"]))
+
+    def test_stop_delete_update(self):
+        self.sandboxes("box")
+        self.cli("-k", "box")
+        self.cli("update", "box")
+        self.env["FAKE_RM_DECLINE"] = "1"
+        self.cli("delete", "box", ok=False)
+        del self.env["FAKE_RM_DECLINE"]
+        self.cli("-d", "box")
+        calls = [c["args"] for c in self.calls()]
+        self.assertEqual(calls[0], ["stop", "box"])
+        self.assertEqual(calls[1][:6], ["exec", "--user", "root", "box", "sh", "-c"])
+        self.assertIn("apt-get upgrade -y", calls[1][-1])
+        self.assertEqual(calls[2:], [["rm", "box"], ["rm", "box"]])
+
+    @unittest.skipUnless(shutil.which("jq"), "jq is not installed")
+    def test_kill_all_stops_only_running_agent_sbx_sandboxes(self):
+        self.sandboxes("mine", "idle", "foreign")
+        self.env["FAKE_SBX_RUNNING"] = "mine,foreign"
+        state = self.directory / "state"
+        state.mkdir()
+        (state / "sandboxes").write_text("mine\nidle\ngone\n")
+        self.cli("-ka")
+        self.assertEqual([c["args"] for c in self.calls()], [["stop", "mine"]])
+
+    # --- credentials -----------------------------------------------------------
+
+    def test_auth_key_is_stdin_only(self):
+        self.sandboxes("tailnet-test")
+        secret = "test-secret-with-'quotes'-$dollars-and-$(syntax)\n"
+        result = self.cli("tailscale", "join", "tailnet-test", "--auth-key-stdin", stdin=secret)
+        call = self.calls()[0]
+        self.assertEqual(base64.b64decode(call["stdin_b64"]).decode(), secret)
+        self.assertNotIn(secret.strip(), json.dumps(call["args"]))
+        self.assertNotIn(secret.strip(), result.stdout + result.stderr)
+        self.assertEqual(call["args"][:4], ["exec", "-i", "--user", "root"])
+
+    def test_tailscale_never_accepts_key_argument(self):
+        self.sandboxes("scratch")
+        self.cli("tailscale", "join", "scratch", "--auth-key", "sentinel", ok=False)
+        self.assertEqual(self.calls(), [])
+
+    def test_tailscale_status_runs_as_root(self):
+        self.sandboxes("box")
+        self.cli("tailscale", "status", "box")
+        self.assertEqual(self.calls()[0]["args"], ["exec", "--user", "root", "box", "tailscale", "status"])
+
+    def test_github_defaults_to_a_piped_fine_grained_token(self):
+        self.sandboxes("box")
+        self.cli("auth", "github", "box", stdin="github_pat_example")
+        call = self.calls()[0]
+        self.assertEqual(call["args"], ["secret", "set", "--sandbox", "box", "github"])
+        self.assertEqual(base64.b64decode(call["stdin_b64"]).decode(), "github_pat_example")
+
+    def test_secret_sources_are_host_references(self):
+        self.sandboxes("scratch")
+        # Fake host tools in a directory with a space; they must not execute here.
+        tools = self.directory / "host tools"
+        tools.mkdir()
+        for binary in ("op", "gh"):
+            tool = tools / binary
+            tool.write_text("#!/bin/sh\nexit 99\n")
+            tool.chmod(0o755)
+        self.env["PATH"] = str(tools) + os.pathsep + self.env["PATH"]
+        self.cli("auth", "github", "scratch", "--from-gh")
+        self.cli("auth", "1password", "scratch", "github", "op://Work/GitHub/token")
+        command = self.calls()[0]["args"]
+        self.assertEqual(command[:6], ["secret", "set", "--sandbox", "scratch", "github", "--command"])
+        self.assertEqual(command[6], str(tools / "gh").replace(" ", "\\ ") + " auth token")
+        self.assertEqual(self.calls()[1]["args"][-2:], ["--ref", "op://Work/GitHub/token"])
+
+    # --- host housekeeping -----------------------------------------------------
+
+    def test_symlinked_launcher_finds_its_files(self):
+        link = self.directory / "bin" / "agent-sbx"
+        link.symlink_to(ROOT / "agent-sbx")
+        self.assertIn("agent-sbx create", self.cli("--help", launcher=link).stdout)
+
+    def test_default_sbx_name_resolves_binary_without_recursion(self):
+        self.env["SBX_BIN"] = "sbx"
+        self.env["PATH"] = str(self.fake.parent) + os.pathsep + self.env["PATH"]
+        self.cli("create", "scratch", "--no-copy", "--plugins", "none")
+        self.assertEqual(self.calls()[0]["args"][0], "create")
+
+    def test_doctor_rejects_old_sbx(self):
+        self.env["FAKE_SBX_VERSION"] = "0.46.9"
+        self.assertIn("too old", self.cli("doctor", ok=False).stderr)
+
+    def test_validate_reports_every_kit(self):
+        result = self.cli("validate", ok=False)
+        validated = [c["args"][2] for c in self.calls() if c["args"][:2] == ["kit", "validate"]]
+        self.assertEqual(len(validated), len(list((ROOT / "kits").iterdir())) + len(list((ROOT / "agents").iterdir())))
+        self.assertIn("Some kits failed validation", result.stderr)
+
+    def test_cron_keeps_path_and_replaces_its_own_line(self):
+        crontab = self.directory / "crontab.txt"
+        crontab.write_text("5 * * * * other-job\n")
+        tool = self.directory / "bin" / "crontab"
+        # Like real crontab, read all of stdin before replacing the table.
+        tool.write_text(f"""#!/bin/sh
+if [ "$1" = -l ]; then cat {crontab}; else new="$(cat)"; printf '%s\\n' "$new" > {crontab}; fi
+""")
+        tool.chmod(0o755)
+        self.env["PATH"] = str(tool.parent) + os.pathsep + self.env["PATH"]
+        self.cli("cron", "install", "3")
+        self.cli("cron", "install", "4")
+        lines = crontab.read_text().splitlines()
+        self.assertEqual(lines[0], "5 * * * * other-job")
+        self.assertEqual(len(lines), 2)
+        self.assertTrue(lines[1].startswith("0 4 * * * PATH="))
+        self.assertIn("update-all", lines[1])
+        self.cli("cron", "remove")
+        self.assertEqual(crontab.read_text().splitlines(), ["5 * * * * other-job"])
+        self.cli("cron", "install", "24", ok=False)
+
+
+if __name__ == "__main__":
+    unittest.main()

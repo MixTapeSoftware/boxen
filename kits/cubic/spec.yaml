@@ -1,0 +1,18 @@
+schemaVersion: '2'
+kind: mixin
+name: agent-sbx-cubic
+displayName: cubic code review CLI
+description: cubic code review CLI
+permissions:
+  network:
+    allow:
+    - cubic.dev
+    - www.cubic.dev
+    - api.cubic.dev
+    - app.cubic.dev
+    - mcafvrhahbqdwfrtncql.supabase.co
+setup:
+  install:
+  - command: bash /home/agent/.local/share/agent-sbx/cubic.sh
+    user: '1000'
+    description: cubic

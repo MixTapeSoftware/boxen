@@ -1,0 +1,14 @@
+schemaVersion: '2'
+kind: mixin
+name: agent-sbx-matt-pocock-skills
+displayName: Matt Pocock agent skills
+description: Matt Pocock agent skills
+permissions:
+  network:
+    allow:
+    - skills.sh
+setup:
+  install:
+  - command: bash /home/agent/.local/share/agent-sbx/matt-pocock-skills.sh
+    user: '1000'
+    description: matt-pocock-skills

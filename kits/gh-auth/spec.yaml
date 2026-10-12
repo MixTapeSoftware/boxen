@@ -1,0 +1,14 @@
+schemaVersion: '2'
+kind: mixin
+name: agent-sbx-gh-auth
+displayName: GitHub CLI and Git credential helper
+description: GitHub CLI and Git credential helper
+permissions:
+  network:
+    allow:
+    - gist.github.com
+setup:
+  install:
+  - command: bash /home/agent/.local/share/agent-sbx/gh-auth.sh
+    user: '1000'
+    description: gh-auth
