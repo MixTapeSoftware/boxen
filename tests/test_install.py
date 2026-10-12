@@ -42,7 +42,7 @@ else:
 
 class Install(unittest.TestCase):
     def setUp(self):
-        temp = tempfile.TemporaryDirectory(prefix="agent-sbx-install-")
+        temp = tempfile.TemporaryDirectory(prefix="agbx-install-")
         self.addCleanup(temp.cleanup)
         self.directory = Path(temp.name)
         self.home = self.directory / "home"
@@ -74,16 +74,16 @@ class Install(unittest.TestCase):
 
     def test_links_the_launcher_and_skips_chadmux_unless_chosen(self):
         result = self.install()
-        link = self.home / ".local/bin/agent-sbx"
+        link = self.home / ".local/bin/agbx"
         self.assertTrue(link.is_symlink())
-        self.assertEqual(link.resolve(), (ROOT / "agent-sbx").resolve())
+        self.assertEqual(link.resolve(), (ROOT / "agbx").resolve())
         self.assertIn("./install --chadmux", result.stdout)
         self.assertFalse((self.home / ".tmux.conf").exists())
         self.install()
         self.assertTrue(link.is_symlink())
 
     def test_keeps_a_file_in_the_way(self):
-        target = self.home / ".local/bin/agent-sbx"
+        target = self.home / ".local/bin/agbx"
         target.parent.mkdir(parents=True)
         target.write_text("mine")
         self.install("--no-chadmux")

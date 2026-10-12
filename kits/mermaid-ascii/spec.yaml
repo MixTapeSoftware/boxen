@@ -1,10 +1,10 @@
 schemaVersion: '2'
 kind: mixin
-name: agent-sbx-mermaid-ascii
+name: agbx-mermaid-ascii
 displayName: mermaid-ascii 1.4.0
 description: mermaid-ascii 1.4.0
 setup:
   install:
-  - command: bash /home/agent/.local/share/agent-sbx/mermaid-ascii.sh
+  - command: bash /home/agent/.local/share/agbx/mermaid-ascii.sh
     user: '1000'
     description: mermaid-ascii

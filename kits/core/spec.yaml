@@ -1,6 +1,6 @@
 schemaVersion: '2'
 kind: mixin
-name: agent-sbx-core
+name: agbx-core
 displayName: Shared development tools and shell
 description: Shared development tools and shell
 # Core is always installed first, so the hosts shared by most kits live here
@@ -32,16 +32,16 @@ permissions:
     - storage.googleapis.com
 setup:
   install:
-  - command: bash /home/agent/.local/share/agent-sbx/core-root.sh
+  - command: bash /home/agent/.local/share/agbx/core-root.sh
     user: '0'
     description: core-root
-  - command: bash /home/agent/.local/share/agent-sbx/sudo-policy.sh
+  - command: bash /home/agent/.local/share/agbx/sudo-policy.sh
     user: '0'
     description: sudo-policy
-  - command: bash /home/agent/.local/share/agent-sbx/core-user.sh
+  - command: bash /home/agent/.local/share/agbx/core-user.sh
     user: '1000'
     description: core-user
 agentInstructions:
   content: |
     sudo is not available in this sandbox. When a task needs root, ask the
-    user to run it from a session opened with agent-sbx shell --with-sudo.
+    user to run it from a session opened with agbx shell --with-sudo.

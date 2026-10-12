@@ -1,10 +1,10 @@
 schemaVersion: '2'
 kind: mixin
-name: agent-sbx-rtkplus
+name: agbx-rtkplus
 displayName: RTK command compression and agent hooks
 description: RTK command compression and agent hooks
 setup:
   install:
-  - command: bash /home/agent/.local/share/agent-sbx/rtkplus.sh
+  - command: bash /home/agent/.local/share/agbx/rtkplus.sh
     user: '1000'
     description: rtkplus

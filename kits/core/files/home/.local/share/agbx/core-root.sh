@@ -25,9 +25,9 @@ curl -fsSL "https://github.com/jdx/mise/releases/download/v$version/mise-v$versi
 printf '%s  %s\n' "$checksum" "$tmp/mise.tar.gz" | sha256sum -c -
 tar -C "$tmp" -xzf "$tmp/mise.tar.gz" mise/bin/mise
 install -m 755 "$tmp/mise/bin/mise" /usr/local/bin/mise
-if ! grep -qF '# agent-sbx environment' /etc/sandbox-persistent.sh; then
+if ! grep -qF '# agbx environment' /etc/sandbox-persistent.sh; then
   cat >> /etc/sandbox-persistent.sh <<'EOF'
-# agent-sbx environment
+# agbx environment
 export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$HOME/.cubic/bin:$PATH"
 export MISE_GIX=false
 export npm_config_prefix="$HOME/.local"
@@ -36,9 +36,9 @@ if [ -n "${HTTP_PROXY:-}" ]; then
   export npm_config_proxy="$HTTP_PROXY"
   export npm_config_https_proxy="${HTTPS_PROXY:-$HTTP_PROXY}"
 fi
-# Variables set with agent-sbx env.
-if [ -r "$HOME/.config/agent-sbx/env.sh" ]; then
-  . "$HOME/.config/agent-sbx/env.sh"
+# Variables set with agbx env.
+if [ -r "$HOME/.config/agbx/env.sh" ]; then
+  . "$HOME/.config/agbx/env.sh"
 fi
 EOF
 fi

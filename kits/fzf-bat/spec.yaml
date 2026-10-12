@@ -1,10 +1,10 @@
 schemaVersion: '2'
 kind: mixin
-name: agent-sbx-fzf-bat
+name: agbx-fzf-bat
 displayName: fzf and bat
 description: fzf and bat
 setup:
   install:
-  - command: bash /home/agent/.local/share/agent-sbx/fzf-bat.sh
+  - command: bash /home/agent/.local/share/agbx/fzf-bat.sh
     user: '1000'
     description: fzf-bat

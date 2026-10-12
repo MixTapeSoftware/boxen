@@ -43,8 +43,8 @@ try:
         },
     }}})
     sid = session["sessionId"]
-    request("/session/" + sid + "/url", {"url": "data:text/html,<title>agent-sbx</title>"})
-    assert request("/session/" + sid + "/title") == "agent-sbx"
+    request("/session/" + sid + "/url", {"url": "data:text/html,<title>agbx</title>"})
+    assert request("/session/" + sid + "/title") == "agbx"
     request("/session/" + sid, method="DELETE")
     print("ChromeDriver session passed")
 finally:

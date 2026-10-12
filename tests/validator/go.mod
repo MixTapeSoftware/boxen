@@ -1,4 +1,4 @@
-module agent-sbx-kit-validation
+module agbx-kit-validation
 
 go 1.26.2
 

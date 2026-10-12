@@ -1,6 +1,6 @@
 schemaVersion: '2'
 kind: mixin
-name: agent-sbx-gh-auth
+name: agbx-gh-auth
 displayName: GitHub CLI and Git credential helper
 description: GitHub CLI and Git credential helper
 permissions:
@@ -9,6 +9,6 @@ permissions:
     - gist.github.com
 setup:
   install:
-  - command: bash /home/agent/.local/share/agent-sbx/gh-auth.sh
+  - command: bash /home/agent/.local/share/agbx/gh-auth.sh
     user: '1000'
     description: gh-auth

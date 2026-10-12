@@ -8,17 +8,17 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-CONTROL = ROOT / "kits/tailscale/files/home/.local/share/agent-sbx/tailscale-control.sh"
+CONTROL = ROOT / "kits/tailscale/files/home/.local/share/agbx/tailscale-control.sh"
 
 
 class TailscaleControl(unittest.TestCase):
     def setUp(self):
-        temp = tempfile.TemporaryDirectory(prefix="agent-sbx-tailscale-test-")
+        temp = tempfile.TemporaryDirectory(prefix="agbx-tailscale-test-")
         self.addCleanup(temp.cleanup)
         self.directory = Path(temp.name)
         self.log = self.directory / "calls.jsonl"
         self.env = dict(os.environ)
-        self.env.pop("AGENT_SBX_SERVE_PRESET", None)
+        self.env.pop("AGBX_SERVE_PRESET", None)
         self.env.update(
             PATH=str(self.directory) + os.pathsep + os.environ["PATH"],
             FAKE_TAILSCALE_LOG=str(self.log),
@@ -127,7 +127,7 @@ print(path)
         self.assertEqual(list(self.directory.glob("join.*")), [])
 
     def test_browser_join_applies_selected_preset_without_auth_key(self):
-        self.env["AGENT_SBX_SERVE_PRESET"] = "supabase"
+        self.env["AGBX_SERVE_PRESET"] = "supabase"
         self.run_control("join", "test-node")
         self.assertEqual(self.calls("up"), [{"args": ["up", "--hostname=test-node"]}])
         self.assertEqual(len(self.calls("serve")), 7)
@@ -135,7 +135,7 @@ print(path)
     def test_single_port_cannot_replace_the_preset(self):
         # The preset owns :443 -> 3000; tailscaled persists serve config, so a
         # replacement would silently break the preset.
-        self.env["AGENT_SBX_SERVE_PRESET"] = "supabase"
+        self.env["AGBX_SERVE_PRESET"] = "supabase"
         result = self.run_control("serve", "5173", ok=False)
         self.assertIn("Supabase preset", result.stderr)
         self.assertEqual(self.calls(), [])

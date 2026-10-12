@@ -1,6 +1,6 @@
 schemaVersion: '2'
 kind: mixin
-name: agent-sbx-nvchad
+name: agbx-nvchad
 displayName: Chadception Neovim configuration
 description: Chadception Neovim configuration
 permissions:
@@ -15,6 +15,6 @@ permissions:
     - registry.npmmirror.com
 setup:
   install:
-  - command: bash /home/agent/.local/share/agent-sbx/nvchad.sh
+  - command: bash /home/agent/.local/share/agbx/nvchad.sh
     user: '1000'
     description: nvchad

@@ -1,6 +1,6 @@
 schemaVersion: '2'
 kind: mixin
-name: agent-sbx-chromium
+name: agbx-chromium
 displayName: Playwright and matched Chrome for Testing plus ChromeDriver
 description: Playwright and matched Chrome for Testing plus ChromeDriver
 permissions:
@@ -11,9 +11,9 @@ permissions:
     - googlechromelabs.github.io
 setup:
   install:
-  - command: bash /home/agent/.local/share/agent-sbx/chromium-root.sh
+  - command: bash /home/agent/.local/share/agbx/chromium-root.sh
     user: '0'
     description: chromium-root
-  - command: bash /home/agent/.local/share/agent-sbx/chromium.sh
+  - command: bash /home/agent/.local/share/agbx/chromium.sh
     user: '1000'
     description: chromium

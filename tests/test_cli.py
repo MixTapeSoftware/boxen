@@ -50,7 +50,7 @@ elif args[:2] == ['kit', 'validate'] and args[2].endswith('/glow'):
 
 class CLI(unittest.TestCase):
     def setUp(self):
-        self.temp = tempfile.TemporaryDirectory(prefix="agent-sbx-test-")
+        self.temp = tempfile.TemporaryDirectory(prefix="agbx-test-")
         self.addCleanup(self.temp.cleanup)
         self.directory = Path(self.temp.name)
         self.log = self.directory / "calls.jsonl"
@@ -63,8 +63,8 @@ class CLI(unittest.TestCase):
         self.project.mkdir()
         self.env = dict(
             os.environ, SBX_BIN=str(self.fake), FAKE_SBX_LOG=str(self.log),
-            FAKE_SBX_STATE=str(self.state), AGENT_SBX_STATE_DIR=str(self.directory / "state"),
-            AGENT_SBX_SKIP_MEMORY_CHECK="1",
+            FAKE_SBX_STATE=str(self.state), AGBX_STATE_DIR=str(self.directory / "state"),
+            AGBX_SKIP_MEMORY_CHECK="1",
         )
         # Prevent real global Git identity/configuration from affecting tests.
         self.env["GIT_CONFIG_GLOBAL"] = str(self.directory / "gitconfig")
@@ -75,7 +75,7 @@ class CLI(unittest.TestCase):
 
     def cli(self, *args, stdin="", ok=True, cwd=None, launcher=None):
         result = subprocess.run(
-            [os.environ.get("TEST_BASH", "bash"), str(launcher or ROOT / "agent-sbx"), *args],
+            [os.environ.get("TEST_BASH", "bash"), str(launcher or ROOT / "agbx"), *args],
             env=self.env, input=stdin, text=True, capture_output=True, timeout=20,
             cwd=cwd or self.project,
         )
@@ -100,7 +100,7 @@ class CLI(unittest.TestCase):
         self.cli("create", "scratch", "--no-copy", "--plugins", "none")
         calls = self.calls()
         self.assertEqual(calls[0]["args"][-1], "shell")
-        self.assertIn("AGENT_SBX_PLUGINS=", calls[0]["args"])
+        self.assertIn("AGBX_PLUGINS=", calls[0]["args"])
         self.assertEqual(self.kits(calls[0]["args"]), ["core", "workspace"])
         self.assertEqual(calls[1]["args"], ["run", "--detached", "--name", "scratch"])
         self.assertFalse(any("tar" in c["args"] for c in calls))
@@ -126,7 +126,7 @@ class CLI(unittest.TestCase):
         self.cli("create", "box", "--no-copy")
         args = self.calls()[0]["args"]
         self.assertEqual(self.kits(args), ["core", "workspace", "matt-pocock-skills"])
-        self.assertIn("AGENT_SBX_PLUGINS=matt-pocock-skills", args)
+        self.assertIn("AGBX_PLUGINS=matt-pocock-skills", args)
         self.assertEqual(args[args.index("--memory") + 1], "4g")
         self.assertLessEqual(int(args[args.index("--cpus") + 1]), 4)
 
@@ -216,7 +216,7 @@ class CLI(unittest.TestCase):
         if pid == 0:
             os.chdir(self.project)
             bash = os.environ.get("TEST_BASH", "bash")
-            os.execvpe(bash, [bash, str(ROOT / "agent-sbx"), *args], self.env)
+            os.execvpe(bash, [bash, str(ROOT / "agbx"), *args], self.env)
         output = b""
 
         def read_until(marker):
@@ -248,7 +248,7 @@ class CLI(unittest.TestCase):
         output, code = self.tty("create", "box", "--no-copy", "--dry-run", keys=b"j jjj \r")
         self.assertEqual(code, 0, output)
         self.assertIn("Plugins: fzf-bat,matt-pocock-skills", output)
-        self.assertIn("AGENT_SBX_AGENT=claude", output)
+        self.assertIn("AGBX_AGENT=claude", output)
 
     def test_selector_quits_without_creating(self):
         output, code = self.tty("create", "box", "--no-copy", keys=b"q")
@@ -273,7 +273,7 @@ class CLI(unittest.TestCase):
     def test_memory_guard_stops_before_create(self):
         meminfo = self.directory / "meminfo"
         meminfo.write_text("MemTotal: 6000000 kB\nMemAvailable: 2097152 kB\n")
-        self.env.update(AGENT_SBX_MEMINFO=str(meminfo), AGENT_SBX_SKIP_MEMORY_CHECK="0")
+        self.env.update(AGBX_MEMINFO=str(meminfo), AGBX_SKIP_MEMORY_CHECK="0")
         result = self.cli("create", "box", "--no-copy", ok=False)
         self.assertIn("2048 MiB of memory is available", result.stderr)
         self.assertEqual(self.calls(), [])
@@ -375,7 +375,7 @@ class CLI(unittest.TestCase):
         self.sandboxes("box")
         self.cli("shell", "--with-sudo", "box")
         self.assertEqual(self.calls()[0]["args"],
-                         ["exec", "-i", "--user", "root", "box", "/usr/local/bin/agent-sbx-sudo-session", "zsh", "-l"])
+                         ["exec", "-i", "--user", "root", "box", "/usr/local/bin/agbx-sudo-session", "zsh", "-l"])
 
     def test_net_maps_ports_to_sbx_ports(self):
         self.sandboxes("box")
@@ -424,7 +424,7 @@ class CLI(unittest.TestCase):
         self.assertEqual(calls[2:], [["rm", "box"], ["rm", "box"]])
 
     @unittest.skipUnless(shutil.which("jq"), "jq is not installed")
-    def test_kill_all_stops_only_running_agent_sbx_sandboxes(self):
+    def test_kill_all_stops_only_running_agbx_sandboxes(self):
         self.sandboxes("mine", "idle", "foreign")
         self.env["FAKE_SBX_RUNNING"] = "mine,foreign"
         state = self.directory / "state"
@@ -482,9 +482,9 @@ class CLI(unittest.TestCase):
     # --- host housekeeping -----------------------------------------------------
 
     def test_symlinked_launcher_finds_its_files(self):
-        link = self.directory / "bin" / "agent-sbx"
-        link.symlink_to(ROOT / "agent-sbx")
-        self.assertIn("agent-sbx create", self.cli("--help", launcher=link).stdout)
+        link = self.directory / "bin" / "agbx"
+        link.symlink_to(ROOT / "agbx")
+        self.assertIn("agbx create", self.cli("--help", launcher=link).stdout)
 
     def test_default_sbx_name_resolves_binary_without_recursion(self):
         self.env["SBX_BIN"] = "sbx"

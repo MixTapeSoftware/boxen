@@ -1,11 +1,11 @@
 schemaVersion: '2'
 kind: mixin
-name: agent-sbx-workspace
+name: agbx-workspace
 displayName: Workspace volume
 description: Keeps a copied or empty workspace on a volume so container recreation, such as sbx kit add, keeps it
 setup:
   install:
-  - command: bash /home/agent/.local/share/agent-sbx/workspace.sh
+  - command: bash /home/agent/.local/share/agbx/workspace.sh
     user: '0'
     description: workspace
 # sbx kit add recreates the container and keeps only kit volumes, bind mounts

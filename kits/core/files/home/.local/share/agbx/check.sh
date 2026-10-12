@@ -7,7 +7,7 @@ check() {
   if "$@" >/dev/null 2>&1; then printf 'PASS %s\n' "$label"
   else printf 'FAIL %s\n' "$label"; failed=1; fi
 }
-selected=",${AGENT_SBX_PLUGINS:-},"
+selected=",${AGBX_PLUGINS:-},"
 check mise mise --version
 check Node node --version
 check Go go version
@@ -27,8 +27,8 @@ if [[ "$selected" == *,chromium,* ]]; then
   check Playwright playwright --version
   check Chrome google-chrome --version
   check ChromeDriver chromedriver --version
-  check 'Browser launch' node -e 'const {chromium}=require("playwright"); (async()=>{const b=await chromium.launch();const p=await b.newPage();await p.setContent("<title>agent-sbx</title>");if(await p.title()!=="agent-sbx")throw Error("title");await b.close()})().catch(e=>{console.error(e);process.exit(1)})'
-  check 'ChromeDriver session' python3 "$HOME/.local/share/agent-sbx/browser-check.py"
+  check 'Browser launch' node -e 'const {chromium}=require("playwright"); (async()=>{const b=await chromium.launch();const p=await b.newPage();await p.setContent("<title>agbx</title>");if(await p.title()!=="agbx")throw Error("title");await b.close()})().catch(e=>{console.error(e);process.exit(1)})'
+  check 'ChromeDriver session' python3 "$HOME/.local/share/agbx/browser-check.py"
 fi
 if [[ "$selected" == *,matt-pocock-skills,* ]]; then
   check 'Shared skills' test -f "$HOME/.agents/skills/setup-matt-pocock-skills/SKILL.md"
@@ -46,8 +46,8 @@ if [[ "$selected" == *,tailscale,* ]]; then
   check 'Tailscale daemon socket' test -S /var/run/tailscale/tailscaled.sock
   printf 'INFO Tailnet login and HTTPS routes require a separate authenticated check.\n'
 fi
-case "${AGENT_SBX_AGENT:-shell}" in
+case "${AGBX_AGENT:-shell}" in
   shell) ;;
-  claude|codex|grok) check "$AGENT_SBX_AGENT" command -v "$AGENT_SBX_AGENT" ;;
+  claude|codex|grok) check "$AGBX_AGENT" command -v "$AGBX_AGENT" ;;
 esac
 exit "$failed"

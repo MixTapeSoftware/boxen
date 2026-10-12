@@ -38,6 +38,16 @@ class Kits(unittest.TestCase):
                 for hook in data.get("setup", {}).get("startup", []):
                     self.assertIsInstance(hook["command"], list)
                     self.assertTrue(hook["background"])
+                    asset = path.parent / "files/home" / hook["command"][-1].removeprefix("/home/agent/")
+                    self.assertTrue(asset.is_file(), str(asset))
+
+    def test_guest_paths_point_at_shipped_files(self):
+        # Kits refer to each other's scripts by guest path; a rename must keep them aligned.
+        shipped = {f.name for f in ROOT.glob("*/*/files/home/.local/share/agbx/*")}
+        for source in list(ROOT.glob("*/*/spec.yaml")) + list(ROOT.glob("*/*/files/home/.local/share/agbx/*")):
+            for name in re.findall(r'\.local/share/agbx/([A-Za-z0-9_-]+\.(?:sh|py))', source.read_text()):
+                with self.subTest(source=source.name, name=name):
+                    self.assertIn(name, shipped)
 
     def test_plugin_list_matches_the_launcher(self):
         plugins = re.search(r'^PLUGINS="docker \$KITS"', CLI, re.M)
@@ -63,7 +73,7 @@ class Kits(unittest.TestCase):
         # tailscaled persists serve config; a startup reapply would clobber a
         # custom :443 mapping on every restart.
         self.assertNotIn("setup", spec("supabase-serve"))
-        self.assertEqual(spec("supabase-serve")["environment"]["variables"]["AGENT_SBX_SERVE_PRESET"], "supabase")
+        self.assertEqual(spec("supabase-serve")["environment"]["variables"]["AGBX_SERVE_PRESET"], "supabase")
 
     def test_optional_kits_list_only_hosts_core_lacks(self):
         core = set(allowed("core"))
@@ -73,7 +83,7 @@ class Kits(unittest.TestCase):
         self.assertEqual(allowed("tailscale"), ["tailscale.com", "pkgs.tailscale.com", "*.tailscale.com", "*.tailscale.io"])
 
     def test_pinned_downloads_are_checksummed(self):
-        for script in ROOT.glob("kits/*/files/home/.local/share/agent-sbx/*.sh"):
+        for script in ROOT.glob("kits/*/files/home/.local/share/agbx/*.sh"):
             text = script.read_text()
             with self.subTest(script=script.name):
                 self.assertNotIn("@latest", text)
@@ -83,10 +93,10 @@ class Kits(unittest.TestCase):
                     self.assertIn("sha256sum -c", text)
 
     def test_proxy_preserved_and_managed_settings_untouched(self):
-        core = (ROOT / "kits/core/files/home/.local/share/agent-sbx/core-root.sh").read_text()
+        core = (ROOT / "kits/core/files/home/.local/share/agbx/core-root.sh").read_text()
         self.assertNotIn("export HTTP_PROXY=", core)
         self.assertNotIn("export HTTPS_PROXY=", core)
-        rtk = (ROOT / "kits/rtkplus/files/home/.local/share/agent-sbx/rtkplus.sh").read_text()
+        rtk = (ROOT / "kits/rtkplus/files/home/.local/share/agbx/rtkplus.sh").read_text()
         self.assertIn("claude-rtk.json", rtk)
         self.assertNotRegex(rtk, r'>.*\.claude/settings\.json')
         self.assertNotRegex(rtk, r'>.*\.codex/config\.toml')

@@ -1,7 +1,7 @@
-# Agent SBX
+# AgentSBX
 
-A standalone project in `agent-sbx/` that provisions development sandboxes for
-coding agents on local Docker Sandboxes.
+A standalone project that provisions development sandboxes for coding agents on
+local Docker Sandboxes, through the `agbx` command.
 
 ## Implementation choices
 

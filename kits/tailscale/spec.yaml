@@ -1,6 +1,6 @@
 schemaVersion: '2'
 kind: mixin
-name: agent-sbx-tailscale
+name: agbx-tailscale
 displayName: Per-sandbox userspace Tailscale
 description: Per-sandbox userspace Tailscale
 permissions:
@@ -12,13 +12,13 @@ permissions:
     - '*.tailscale.io'
 setup:
   install:
-  - command: bash /home/agent/.local/share/agent-sbx/tailscale-install.sh
+  - command: bash /home/agent/.local/share/agbx/tailscale-install.sh
     user: '0'
     description: tailscale-install
   startup:
   - command:
     - bash
-    - /home/agent/.local/share/agent-sbx/tailscale-start.sh
+    - /home/agent/.local/share/agbx/tailscale-start.sh
     user: '0'
     background: true
     description: Start userspace tailscaled

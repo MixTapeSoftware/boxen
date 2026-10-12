@@ -1,9 +1,9 @@
-# Agent SBX
+# AgentSBX
 
 Development sandboxes for coding agents on **local Docker Sandboxes**, with a
 shell by default and optional Claude, Codex, or Grok workloads. Docker owns the
 VM, network policy, credential proxy, and private Docker Engine. This project
-supplies the launcher, development tools as kits, shell configuration, and
+supplies the `agbx` launcher, development tools as kits, shell configuration, and
 Tailscale integration.
 
 Requires SBX **0.47.0 or newer**, Docker sign-in, and a host supported by
@@ -17,21 +17,21 @@ directory and are not published to a registry.
 
 ~~~bash
 sbx login
-./install                 # Links agent-sbx into ~/.local/bin; offers Chadmux
-agent-sbx doctor
+./install                 # Links agbx into ~/.local/bin; offers Chadmux
+agbx doctor
 
 # Choose an agent and kits, then copy the current directory into a new sandbox.
 cd /path/to/project
-agent-sbx create my-project
-agent-sbx my-project      # Open a shell
+agbx create my-project
+agbx my-project      # Open a shell
 
 # Copy another directory, or start empty.
-agent-sbx create my-project -p /path/to/project
-agent-sbx create scratch --no-copy
+agbx create my-project -p /path/to/project
+agbx create scratch --no-copy
 
 # A native agent entrypoint with the same tools.
-agent-sbx create codex-project --agent codex
-agent-sbx run codex-project
+agbx create codex-project --agent codex
+agbx run codex-project
 ~~~
 
 Creation stays detached so preview servers continue after closing your terminals.
@@ -40,10 +40,10 @@ take a name check that the sandbox exists first, so a mistyped name never
 creates a sandbox; only `create` does.
 
 Each sandbox gets 4 CPUs (or fewer on a smaller host) and 4 GiB unless you pass
-`--cpus` and `--memory`, or set `AGENT_SBX_CPUS` and `AGENT_SBX_MEMORY`. Every
+`--cpus` and `--memory`, or set `AGBX_CPUS` and `AGBX_MEMORY`. Every
 sandbox is a microVM that holds its memory. On Linux, `create` refuses to start
 one when available memory is below its size plus 1 GiB; a concurrent test
-microVM once exhausted the validation host. `AGENT_SBX_SKIP_MEMORY_CHECK=1`
+microVM once exhausted the validation host. `AGBX_SKIP_MEMORY_CHECK=1`
 skips the check.
 
 On first creation, SBX may ask for a network preset and approval of declared
@@ -61,13 +61,13 @@ binding does not provide a credential. Configure credential sources separately.
 | `exec NAME COMMAND [ARGS...]` | | Run a command |
 | `net NAME [-b ADDR\|-H HOST] [-l] [-r PORT] [PORT\|HOST:SANDBOX ...]` | `-n` | Publish ports on the host through `sbx ports`; `-r all` is not supported |
 | `env NAME VAR` | `-e` | Set a variable; prompts without echoing |
-| `stop NAME`, `kill-all` | `kill`, `-k`, `-ka` | Stop one sandbox, or every running agent-sbx sandbox |
+| `stop NAME`, `kill-all` | `kill`, `-k`, `-ka` | Stop one sandbox, or every running agbx sandbox |
 | `delete NAME` | `-d` | Remove it, after sbx asks to confirm |
 | `update NAME`, `update-all`, `cron install [HOUR]\|remove\|status` | `-u`, `-ua` | `apt-get upgrade` as root, on demand or nightly |
 | `status [--once]` | | `sbx tui`, or `sbx ls` once |
 
 `auth`, `tailscale`, `check`, `validate` and `doctor` are described below, and
-`agent-sbx --help` lists every option. Updates live in the container, so a
+`agbx --help` lists every option. Updates live in the container, so a
 recreate such as `sbx kit add` starts again from the image.
 
 ## Choosing kits
@@ -82,11 +82,11 @@ more: `--agent NAME`, `--claude`, `--codex`, `--grok`, `--tailscale`,
 runs:
 
 ~~~bash
-agent-sbx create web --tailscale --supabase-serve --gh-token --no-tui
-agent-sbx create small --plugins fzf-bat,just,gh-auth
-agent-sbx create everything --plugins all
-agent-sbx create base --plugins none
-agent-sbx create preview --dry-run
+agbx create web --tailscale --supabase-serve --gh-token --no-tui
+agbx create small --plugins fzf-bat,just,gh-auth
+agbx create everything --plugins all
+agbx create base --plugins none
+agbx create preview --dry-run
 ~~~
 
 The core kit always supplies build libraries and the development shell.
@@ -127,7 +127,7 @@ own default links it in read-only). Opt in per sandbox:
 
 `--dry-run` lists the host mounts a create would add. `sbx mount` can add one
 to a running sandbox later. sbx's `ssh.agentForwardingEnabled` setting lets
-SSH clients forward an SSH agent into sandboxes; agent-sbx connects with
+SSH clients forward an SSH agent into sandboxes; agbx connects with
 `sbx exec` instead. To rule it out entirely:
 `sbx settings set ssh.agentForwardingEnabled false`.
 
@@ -136,9 +136,9 @@ credentials, agent login files, SSH private keys, or your host home directory.
 
 ## Sudo
 
-Docker's images give the agent user standing passwordless sudo. agent-sbx
+Docker's images give the agent user standing passwordless sudo. agbx
 removes it, and fails creation if it cannot. For root, open a
-session with `./agent-sbx shell --with-sudo NAME`: it adds a `_sudo` group to
+session with `./agbx shell --with-sudo NAME`: it adds a `_sudo` group to
 that session only. Agents are told to ask you instead of using sudo.
 
 ## Kits
@@ -196,7 +196,7 @@ files.
 
 ## Host setup and Chadmux
 
-`./install` links `agent-sbx` into `~/.local/bin`; the launcher follows the link
+`./install` links `agbx` into `~/.local/bin`; the launcher follows the link
 back to this checkout's kits. It then offers Chadmux, Chad's opinionated tmux
 config, with TPM plugins for the Dracula theme, tmux-yank and
 vim-tmux-navigator. `./install --chadmux` installs it without asking, and
@@ -219,23 +219,23 @@ sbx secret set openai
 sbx secret set xai
 
 # A fine-grained token (Contents read/write, Metadata read-only), pasted or piped.
-./agent-sbx auth github my-project
-op read 'op://Work/GitHub/fine-grained-token' | ./agent-sbx auth github my-project
+./agbx auth github my-project
+op read 'op://Work/GitHub/fine-grained-token' | ./agbx auth github my-project
 
 # Or the host gh token, which carries every scope gh was granted.
-./agent-sbx auth github my-project --from-gh
+./agbx auth github my-project --from-gh
 
 # Host op must already be authenticated.
-./agent-sbx auth 1password my-project github 'op://Work/GitHub/token'
+./agbx auth 1password my-project github 'op://Work/GitHub/token'
 
 # Known API keys become proxy secrets; other values are written into the guest.
-./agent-sbx env my-project ANTHROPIC_API_KEY
+./agbx env my-project ANTHROPIC_API_KEY
 ~~~
 
 Docker resolves the host command/reference and injects the real value into
 requests to the service's declared destinations. The guest receives a placeholder.
 OAuth for built-in agents remains Docker's native flow. `env` values for other
-variables live in `~/.config/agent-sbx/env.sh` inside the sandbox, where the
+variables live in `~/.config/agbx/env.sh` inside the sandbox, where the
 agent can read them; for API keys, prefer
 [SBX custom secrets](https://docs.docker.com/ai/sandboxes/configuration/credentials/).
 
@@ -249,15 +249,15 @@ makes those vault values accessible to processes in that sandbox.
 Join through the browser/device flow:
 
 ~~~bash
-./agent-sbx tailscale join my-project
-./agent-sbx tailscale status my-project
+./agbx tailscale join my-project
+./agbx tailscale status my-project
 ~~~
 
 Or pipe a tagged auth key directly from a secret manager:
 
 ~~~bash
 op read 'op://Development/Tailscale/auth-key' |
-  ./agent-sbx tailscale join my-project --auth-key-stdin
+  ./agbx tailscale join my-project --auth-key-stdin
 ~~~
 
 The key travels on stdin into a temporary guest file with private permissions.
@@ -270,8 +270,8 @@ needs, and no exit nodes or Funnel. The node has no operator, so the agent
 cannot change its settings; `join`, `serve` and `status` run as root.
 
 ~~~bash
-./agent-sbx tailscale serve my-project 5173
-./agent-sbx tailscale serve my-project supabase
+./agbx tailscale serve my-project 5173
+./agbx tailscale serve my-project supabase
 ~~~
 
 | Tailnet HTTPS port | Guest HTTP port | Service |
@@ -309,14 +309,14 @@ Direct peer UDP is not enabled by these kits; relay performance depends on the
 host network and SBX policy.
 
 ~~~bash
-./agent-sbx exec my-project tail /var/log/agent-sbx/tailscaled.log
+./agbx exec my-project tail /var/log/agbx/tailscaled.log
 ~~~
 
 ## RTK and editor details
 
 RTK's Codex setup writes hooks.json and instructions, leaving Docker's managed
 config.toml alone. For Claude, the derived workload passes the separate
-/home/agent/.config/agent-sbx/claude-rtk.json file through --settings. Pass the
+/home/agent/.config/agbx/claude-rtk.json file through --settings. Pass the
 same option when launching Claude manually. Grok can use the RTK CLI explicitly;
 this project does not claim an automatic Grok hook.
 
@@ -329,8 +329,8 @@ language servers.
 ## Verify and develop
 
 ~~~bash
-./agent-sbx validate                 # Docker's actual kit validator; requires login
-./agent-sbx check my-project         # Tool/browser/config checks inside the guest
+./agbx validate                 # Docker's actual kit validator; requires login
+./agbx check my-project         # Tool/browser/config checks inside the guest
 
 python3 -m pip install -r tests/requirements.txt
 bash tests/run.sh                    # Syntax and isolated host CLI tests

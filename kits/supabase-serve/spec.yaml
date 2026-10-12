@@ -1,10 +1,10 @@
 schemaVersion: '2'
 kind: mixin
-name: agent-sbx-supabase-serve
+name: agbx-supabase-serve
 displayName: Seven HTTPS routes for app and Supabase
 description: Seven HTTPS routes for app and Supabase
-# agent-sbx tailscale join applies the routes once. tailscaled keeps serve
+# agbx tailscale join applies the routes once. tailscaled keeps serve
 # config in its state volume, so nothing reapplies them on start.
 environment:
   variables:
-    AGENT_SBX_SERVE_PRESET: supabase
+    AGBX_SERVE_PRESET: supabase

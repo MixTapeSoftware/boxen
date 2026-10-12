@@ -1,6 +1,6 @@
 schemaVersion: "2"
 kind: sandbox
-name: agent-sbx-grok
+name: agbx-grok
 displayName: Grok Build
 description: Grok Build with Docker's credential proxy
 extends: shell
@@ -21,7 +21,7 @@ credentials:
           format: Bearer %s
 setup:
   install:
-    - command: bash /home/agent/.local/share/agent-sbx/grok.sh
+    - command: bash /home/agent/.local/share/agbx/grok.sh
       user: "1000"
       description: Install Grok Build
 agentInstructions:

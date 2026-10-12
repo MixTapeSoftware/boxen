@@ -1,4 +1,4 @@
-# Sourced by agent-sbx. Credentials are never accepted as command arguments.
+# Sourced by agbx. Credentials are never accepted as command arguments.
 # Bash 3.2: no associative arrays; guard empty arrays under set -u.
 
 # Optional kits in install order. Docker is native to the base image.
@@ -10,13 +10,13 @@ AGENTS="shell claude codex grok"
 # env variables that sbx can inject through its proxy instead of the guest.
 SERVICE_VARS="ANTHROPIC_API_KEY:anthropic OPENAI_API_KEY:openai XAI_API_KEY:xai GH_TOKEN:github GITHUB_TOKEN:github GROQ_API_KEY:groq MISTRAL_API_KEY:mistral OPENROUTER_API_KEY:openrouter GEMINI_API_KEY:google GOOGLE_API_KEY:google"
 MIN_SBX_VERSION=0.47.0
-STATE_DIR="${AGENT_SBX_STATE_DIR:-$HOME/.local/state/agent-sbx}"
+STATE_DIR="${AGBX_STATE_DIR:-$HOME/.local/state/agbx}"
 REGISTRY="$STATE_DIR/sandboxes"
 LOG_DIR="$STATE_DIR/logs"
-CRON_TAG="# agent-sbx-update-all"
+CRON_TAG="# agbx-update-all"
 UPDATE_SCRIPT='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get upgrade -y'
 
-die() { printf 'agent-sbx: %s\n' "$*" >&2; exit 1; }
+die() { printf 'agbx: %s\n' "$*" >&2; exit 1; }
 log() { printf '[+] %s\n' "$*"; }
 # Call sbx by the path need_sbx resolved. Not `command sbx`: in Bash 3.2 a
 # failing `command` inside a function exits under set -e even within ||.
@@ -43,7 +43,7 @@ set_agent() {
 
 usage() {
   cat <<'EOF'
-agent-sbx create NAME [DIRECTORY] [options]      (also: init, -i)
+agbx create NAME [DIRECTORY] [options]      (also: init, -i)
   -p, --path DIR                 Host directory to copy (default: current directory)
   --no-copy                      Start with an empty /workspace
   --mode copy|mount|clone|none   copy (default), bind mount, sbx Git clone, or empty;
@@ -61,34 +61,34 @@ agent-sbx create NAME [DIRECTORY] [options]      (also: init, -i)
   --no-tui                       Skip the interactive selector; use flags and defaults
   --dry-run                      Print the creation plan without creating
 
-agent-sbx NAME                                   Open zsh in the sandbox
-agent-sbx shell [--with-sudo] NAME [COMMAND...]  (also: -s) --with-sudo grants
-                                                 sudo for this session only
-agent-sbx run NAME [-- ARGS...]                  Attach to its agent
-agent-sbx exec NAME COMMAND [ARGS...]            Run a command
-agent-sbx net NAME [-b ADDR|-H HOST] [-l] [-r PORT] [PORT|HOST:SANDBOX ...]
-                                                 (also: -n) Publish ports on the host
-agent-sbx env NAME VAR                           (also: -e) Set a variable; prompts silently
-agent-sbx stop NAME                              (also: kill, -k)
-agent-sbx kill-all                               (also: -ka) Stop all agent-sbx sandboxes
-agent-sbx delete NAME                            (also: -d) sbx asks to confirm
-agent-sbx update NAME                            (also: -u) apt-get upgrade as root
-agent-sbx update-all                             (also: -ua)
-agent-sbx cron install [HOUR]|remove|status      Nightly update-all (default 19:00)
-agent-sbx status [--once]                        sbx's dashboard, or its table once
-agent-sbx ls                                     List sandboxes
-agent-sbx check NAME                             Check installed plugins
-agent-sbx plugins                                Show the plugin mapping
-agent-sbx validate                               Validate all kits using the installed sbx
-agent-sbx doctor                                 Check local prerequisites
+agbx NAME                                   Open zsh in the sandbox
+agbx shell [--with-sudo] NAME [COMMAND...]  (also: -s) --with-sudo grants
+                                            sudo for this session only
+agbx run NAME [-- ARGS...]                  Attach to its agent
+agbx exec NAME COMMAND [ARGS...]            Run a command
+agbx net NAME [-b ADDR|-H HOST] [-l] [-r PORT] [PORT|HOST:SANDBOX ...]
+                                            (also: -n) Publish ports on the host
+agbx env NAME VAR                           (also: -e) Set a variable; prompts silently
+agbx stop NAME                              (also: kill, -k)
+agbx kill-all                               (also: -ka) Stop all agbx sandboxes
+agbx delete NAME                            (also: -d) sbx asks to confirm
+agbx update NAME                            (also: -u) apt-get upgrade as root
+agbx update-all                             (also: -ua)
+agbx cron install [HOUR]|remove|status      Nightly update-all (default 19:00)
+agbx status [--once]                        sbx's dashboard, or its table once
+agbx ls                                     List sandboxes
+agbx check NAME                             Check installed plugins
+agbx plugins                                List the plugins and what they install
+agbx validate                               Validate all kits using the installed sbx
+agbx doctor                                 Check local prerequisites
 
-agent-sbx auth github NAME [--from-gh]           Store a fine-grained token (stdin or
-                                                 prompt), or source the host gh token
-agent-sbx auth 1password NAME SERVICE OP_REFERENCE
-                                                 Source a credential from host op
-agent-sbx tailscale join NAME [--auth-key-stdin]
-agent-sbx tailscale status NAME
-agent-sbx tailscale serve NAME PORT|supabase     Publish HTTPS :443 or the seven preset routes
+agbx auth github NAME [--from-gh]           Store a fine-grained token (stdin or
+                                            prompt), or source the host gh token
+agbx auth 1password NAME SERVICE OP_REFERENCE
+                                            Source a credential from host op
+agbx tailscale join NAME [--auth-key-stdin]
+agbx tailscale status NAME
+agbx tailscale serve NAME PORT|supabase     Publish HTTPS :443 or the seven preset routes
 
 Commands that take NAME never create a sandbox; only create does.
 EOF
@@ -98,7 +98,7 @@ EOF
 
 sandbox_exists() {
   local names
-  names="$(sbx ls --quiet)" || die 'sbx ls failed; check agent-sbx doctor.'
+  names="$(sbx ls --quiet)" || die 'sbx ls failed; check agbx doctor.'
   printf '%s\n' "$names" | grep -Fxq -- "$1"
 }
 # Every command that takes NAME checks first, so a typo can never reach a
@@ -107,7 +107,7 @@ need_sandbox() {
   valid_name "$1"
   need_sbx
   sandbox_exists "$1" ||
-    die "No sandbox named $1 (see agent-sbx ls). Nothing was created; use agent-sbx create $1."
+    die "No sandbox named $1 (see agbx ls). Nothing was created; use agbx create $1."
 }
 register() {
   mkdir -p "$STATE_DIR"
@@ -118,7 +118,7 @@ unregister() {
   grep -Fxv -- "$1" "$REGISTRY" > "$REGISTRY.tmp" || true
   mv "$REGISTRY.tmp" "$REGISTRY"
 }
-# "NAME STATUS" for each sandbox agent-sbx created that still exists.
+# "NAME STATUS" for each sandbox agbx created that still exists.
 managed_states() {
   need_jq "$1"
   [[ -s "$REGISTRY" ]] || return 0
@@ -151,15 +151,15 @@ to_kib() {
 # Linux only. Starting a microVM the host cannot hold lets the OOM killer
 # take other processes, as happened during validation.
 memory_ok() {
-  local meminfo="${AGENT_SBX_MEMINFO:-/proc/meminfo}" need avail
-  [[ "${AGENT_SBX_SKIP_MEMORY_CHECK:-0}" != 1 && -r "$meminfo" ]] || return 0
+  local meminfo="${AGBX_MEMINFO:-/proc/meminfo}" need avail
+  [[ "${AGBX_SKIP_MEMORY_CHECK:-0}" != 1 && -r "$meminfo" ]] || return 0
   need="$(to_kib "$1")" || die "Invalid memory size: $1"
   avail="$(awk '/^MemAvailable:/ {print $2}' "$meminfo")"
   [[ -n "$avail" ]] || return 0
   if (( avail < need + 1048576 )); then
-    printf 'agent-sbx: Only %s MiB of memory is available; a %s sandbox needs %s MiB plus 1024 MiB headroom.\n' \
+    printf 'agbx: Only %s MiB of memory is available; a %s sandbox needs %s MiB plus 1024 MiB headroom.\n' \
       "$((avail / 1024))" "$1" "$((need / 1024))" >&2
-    printf 'Stop another sandbox or pass a smaller --memory. AGENT_SBX_SKIP_MEMORY_CHECK=1 skips this check.\n' >&2
+    printf 'Stop another sandbox or pass a smaller --memory. AGBX_SKIP_MEMORY_CHECK=1 skips this check.\n' >&2
     return 1
   fi
 }
@@ -199,8 +199,8 @@ copy_workspace() {
       tar --no-same-owner --warning=no-unknown-keyword -xf -
 }
 created_but() {
-  printf 'agent-sbx: Sandbox %s was created, but %s failed.\n' "$1" "$2" >&2
-  printf 'Look inside with: agent-sbx shell %s\n' "$1" >&2
+  printf 'agbx: Sandbox %s was created, but %s failed.\n' "$1" "$2" >&2
+  printf 'Look inside with: agbx shell %s\n' "$1" >&2
   printf 'To start over: sbx rm %s, then run create again.\n' "$1" >&2
   exit 1
 }
@@ -209,7 +209,7 @@ created_but() {
 
 create() {
   local name="" directory="" agent="" requested="$DEFAULT_PLUGINS" flagged="" mode=""
-  local dry=0 ack_env=0 memory="${AGENT_SBX_MEMORY:-4g}" cpus="${AGENT_SBX_CPUS:-}"
+  local dry=0 ack_env=0 memory="${AGBX_MEMORY:-4g}" cpus="${AGBX_CPUS:-}"
   # Nothing from the host is mounted unless asked: no workspace mount, no
   # shared skills store (sbx's own default is a read-only link).
   local skills=off mounts="" tui=1 chose_plugins=0
@@ -293,7 +293,7 @@ create() {
       chadmux) die 'Chadmux/tmux integration is intentionally excluded.' ;;
       claude-code|codex|grok) die "Select the agent with --agent (one per sandbox), not --plugins $item." ;;
     esac
-    in_list "$item" "$PLUGINS" || die "Unknown plugin: $item (see agent-sbx plugins)"
+    in_list "$item" "$PLUGINS" || die "Unknown plugin: $item (see agbx plugins)"
     add_plugin "$item"
   done
   # The selector shows in a terminal unless --plugins already chose the kits.
@@ -324,7 +324,7 @@ create() {
   esac
   if [[ "$skills" != off ]]; then mounts="${mounts:+$mounts; }sbx skills store ($skills)"; fi
   command=(create --name "$name" --skills "$skills" --cpus "$cpus" --memory "$memory"
-    --env "AGENT_SBX_AGENT=$agent" --env "AGENT_SBX_PLUGINS=$selected" "${kit_args[@]}")
+    --env "AGBX_AGENT=$agent" --env "AGBX_PLUGINS=$selected" "${kit_args[@]}")
   if [[ "$mode" == clone ]]; then command+=(--clone); fi
   command+=("$workload")
   case "$mode" in mount|clone) command+=("$directory") ;; esac
@@ -362,10 +362,10 @@ create() {
         created_but "$name" 'setting the Git identity'
     fi
   done
-  printf 'Ready: agent-sbx %s\n' "$name"
-  printf 'Plugin smoke checks: agent-sbx check %s\n' "$name"
+  printf 'Ready: agbx %s\n' "$name"
+  printf 'Plugin smoke checks: agbx check %s\n' "$name"
   if has_plugin tailscale; then
-    printf 'Join your tailnet: agent-sbx tailscale join %s\n' "$name"
+    printf 'Join your tailnet: agbx tailscale join %s\n' "$name"
     printf 'Once joined, the sandbox reaches whatever your tailnet ACLs allow, outside sbx network policy.\n'
   fi
 }
@@ -393,7 +393,7 @@ cmd_shell() {
   fi
   if [[ "$with_sudo" == 1 ]]; then
     # Root enters and drops to agent with the _sudo group for this session only.
-    sbx exec "${tty[@]}" --user root "$name" /usr/local/bin/agent-sbx-sudo-session "${cmd[@]}"
+    sbx exec "${tty[@]}" --user root "$name" /usr/local/bin/agbx-sudo-session "${cmd[@]}"
   else
     sbx exec "${tty[@]}" "$name" "${cmd[@]}"
   fi
@@ -431,7 +431,7 @@ cmd_stop_all() {
     log "Stopped $name"
     stopped=1
   done <<< "$states"
-  [[ "$stopped" == 1 ]] || echo 'No running agent-sbx sandboxes'
+  [[ "$stopped" == 1 ]] || echo 'No running agbx sandboxes'
 }
 
 cmd_delete() {
@@ -509,7 +509,7 @@ cmd_env() {
   # The value travels on stdin and replaces any earlier entry for the same name.
   printf 'export %s=%q\n' "$var" "$value" | sbx exec -i "$name" sh -c '
     umask 077
-    dir="$HOME/.config/agent-sbx"; file="$dir/env.sh"
+    dir="$HOME/.config/agbx"; file="$dir/env.sh"
     mkdir -p "$dir"; touch "$file"
     grep -v "^export $1=" "$file" > "$file.tmp" || true
     cat >> "$file.tmp"
@@ -533,13 +533,13 @@ cmd_update_all() {
   local states name status failed="" logfile
   need_sbx
   states="$(managed_states update-all)"
-  if [[ -z "$states" ]]; then echo 'No agent-sbx sandboxes found'; return; fi
+  if [[ -z "$states" ]]; then echo 'No agbx sandboxes found'; return; fi
   mkdir -p "$LOG_DIR"
   logfile="$LOG_DIR/update-$(date +%Y%m%d-%H%M%S).log"
   while read -r name status; do
     [[ -n "$name" ]] || continue
     if [[ "$status" != running ]]; then
-      if ! memory_ok "${AGENT_SBX_MEMORY:-4g}"; then failed="$failed $name"; continue; fi
+      if ! memory_ok "${AGBX_MEMORY:-4g}"; then failed="$failed $name"; continue; fi
       log "Starting $name..."
       if ! sbx run --detached --name "$name" </dev/null >/dev/null; then failed="$failed $name"; continue; fi
     fi
@@ -561,7 +561,7 @@ cmd_update_all() {
   fi
   rm -f "$logfile"
   write_status ok
-  log 'All agent-sbx sandboxes updated'
+  log 'All agbx sandboxes updated'
 }
 
 cmd_cron() {
@@ -572,17 +572,17 @@ cmd_cron() {
       [[ "$hour" =~ ^[0-9]+$ && "$hour" -le 23 ]] || die "Invalid hour: $hour (0-23)"
       mkdir -p "$LOG_DIR"
       # cron's PATH is minimal; keep the one that finds sbx and jq now.
-      line="0 $hour * * * PATH=$(printf '%q' "$PATH") $(printf '%q' "$PROJECT_DIR/agent-sbx") update-all >> $(printf '%q' "$LOG_DIR/cron.log") 2>&1 $CRON_TAG"
+      line="0 $hour * * * PATH=$(printf '%q' "$PATH") $(printf '%q' "$PROJECT_DIR/agbx") update-all >> $(printf '%q' "$LOG_DIR/cron.log") 2>&1 $CRON_TAG"
       { { crontab -l 2>/dev/null || true; } | { grep -vF "$CRON_TAG" || true; }; printf '%s\n' "$line"; } | crontab -
       log "Installed cron: daily at $(printf '%02d' "$((10#$hour))"):00; logs in $LOG_DIR/cron.log"
       ;;
     remove)
       { crontab -l 2>/dev/null || true; } | { grep -vF "$CRON_TAG" || true; } | crontab -
-      log 'Removed the agent-sbx update cron'
+      log 'Removed the agbx update cron'
       ;;
     status)
       line="$(crontab -l 2>/dev/null | grep -F "$CRON_TAG" || true)"
-      if [[ -n "$line" ]]; then echo "Active: $line"; else echo 'No agent-sbx update cron installed'; fi
+      if [[ -n "$line" ]]; then echo "Active: $line"; else echo 'No agbx update cron installed'; fi
       ;;
     *) die 'Usage: cron install [HOUR]|remove|status' ;;
   esac
@@ -639,10 +639,10 @@ tailscale_command() {
   case "$action" in
     join)
       if [[ $# == 0 ]]; then
-        sbx exec --user root "$name" /usr/local/bin/agent-sbx-tailscale join "$name"
+        sbx exec --user root "$name" /usr/local/bin/agbx-tailscale join "$name"
       elif [[ $# == 1 && "$1" == --auth-key-stdin ]]; then
         [[ ! -t 0 ]] || die 'Pipe an auth key on stdin; do not pass it as an argument.'
-        sbx exec -i --user root "$name" /usr/local/bin/agent-sbx-tailscale join "$name" --auth-key-stdin
+        sbx exec -i --user root "$name" /usr/local/bin/agbx-tailscale join "$name" --auth-key-stdin
       else die 'Use: tailscale join NAME [--auth-key-stdin]'; fi
       ;;
     status)
@@ -650,7 +650,7 @@ tailscale_command() {
       sbx exec --user root "$name" tailscale status ;;
     serve)
       [[ $# == 1 ]] || die 'Use: tailscale serve NAME PORT|supabase'
-      sbx exec --user root "$name" /usr/local/bin/agent-sbx-tailscale serve "$1" ;;
+      sbx exec --user root "$name" /usr/local/bin/agbx-tailscale serve "$1" ;;
     *) die "Unknown tailscale action: $action" ;;
   esac
 }
@@ -673,7 +673,7 @@ cmd_doctor() {
   version="$(sbx version 2>/dev/null | sed -n 's/.*version: v\{0,1\}\([0-9][0-9.]*\).*/\1/p' | head -1)"
   [[ -n "$version" ]] || die 'Could not read the sbx version'
   version_ge "$version" "$MIN_SBX_VERSION" ||
-    die "sbx $version is too old; agent-sbx needs $MIN_SBX_VERSION or newer."
+    die "sbx $version is too old; agbx needs $MIN_SBX_VERSION or newer."
   printf 'sbx %s\n' "$version"
   if [[ "$(uname -s)" == Linux ]]; then
     [[ -r /dev/kvm && -w /dev/kvm ]] || die '/dev/kvm is not accessible; local sandboxes need KVM and kvm group membership.'
@@ -714,7 +714,7 @@ main() {
     check)
       [[ $# == 1 ]] || die 'Usage: check NAME'
       need_sandbox "$1"
-      sbx exec "$1" bash /home/agent/.local/share/agent-sbx/check.sh ;;
+      sbx exec "$1" bash /home/agent/.local/share/agbx/check.sh ;;
     auth) auth "$@" ;;
     tailscale) tailscale_command "$@" ;;
     validate) cmd_validate ;;
