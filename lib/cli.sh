@@ -18,6 +18,7 @@ UPDATE_SCRIPT='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-
 
 die() { printf 'agbx: %s\n' "$*" >&2; exit 1; }
 log() { printf '[+] %s\n' "$*"; }
+warn() { printf 'agbx: %s\n' "$*" >&2; }
 # Call sbx by the path need_sbx resolved. Not `command sbx`: in Bash 3.2 a
 # failing `command` inside a function exits under set -e even within ||.
 SBX_PATH=""
@@ -205,6 +206,47 @@ created_but() {
   exit 1
 }
 
+# --- Credentials -------------------------------------------------------------
+
+# A host-wide sbx secret for SERVICE is injected into every sandbox.
+host_wide_secret() {
+  local listing
+  listing="$(sbx secret ls --global --service "$1" --json 2>/dev/null)" || return 1
+  [[ -n "$listing" && "$(printf '%s' "$listing" | tr -d ' \t\n')" != *'"secrets":[]'* ]]
+}
+# Docker's Claude and Codex workloads prefer a host-wide secret, which then
+# takes the place of each sandbox's own subscription sign-in.
+warn_host_wide_agent_secret() {
+  local service
+  case "$1" in claude) service=anthropic ;; codex) service=openai ;; *) return 0 ;; esac
+  if host_wide_secret "$service"; then
+    warn "sbx has a host-wide $service secret, so this sandbox uses it instead of its own sign-in. Remove it with: sbx secret rm $service"
+  fi
+}
+# Offer the agent's subscription sign-in on the way in, when the sandbox needs
+# one. Terminal only; anything unexpected skips the offer instead of blocking.
+offer_agent_login() {
+  local status=0 answer
+  [[ -t 0 && -t 1 ]] || return 0
+  sbx exec "$1" bash /home/agent/.local/share/agbx/agent-login.sh status </dev/null >/dev/null 2>&1 || status=$?
+  [[ "$status" == 10 ]] || return 0
+  read_value answer "$1's agent is not signed in. Sign in to your subscription now? [Y/n] "
+  case "$answer" in n|N|no|No|NO) return 0 ;; esac
+  sbx exec -it "$1" bash /home/agent/.local/share/agbx/agent-login.sh login ||
+    warn "Sign-in did not finish; agbx $1 offers it again."
+}
+# Reads `export VAR=value` on stdin and stores it in the sandbox, replacing any
+# earlier value. The sandbox and its agent can read it.
+write_guest_env() {
+  sbx exec -i "$1" sh -c '
+    umask 077
+    dir="$HOME/.config/agbx"; file="$dir/env.sh"
+    mkdir -p "$dir"; touch "$file"
+    grep -v "^export $1=" "$file" > "$file.tmp" || true
+    cat >> "$file.tmp"
+    mv "$file.tmp" "$file"' sh "$2"
+}
+
 # --- Commands ----------------------------------------------------------------
 
 create() {
@@ -213,6 +255,7 @@ create() {
   # Nothing from the host is mounted unless asked: no workspace mount, no
   # shared skills store (sbx's own default is a read-only link).
   local skills=off mounts="" tui=1 chose_plugins=0
+  local gh_token="" op_token="" ts_key="" ts_port="" port_re='^[0-9]+$'
   local selected="" item kit workload identity value home
   local kit_args=() command=() items=()
   while [[ $# -gt 0 ]]; do
@@ -339,6 +382,30 @@ create() {
   fi
   need_sbx
   memory_ok "$memory" || exit 1
+  warn_host_wide_agent_secret "$agent"
+  # Ask for the selected plugins' keys before the long provisioning run. Each
+  # stays with this sandbox; blank skips.
+  if [[ -t 0 && -t 1 ]]; then
+    if has_plugin gh-auth; then
+      printf '\nGitHub: a fine-grained token (Contents read/write, Metadata read-only) from\n'
+      printf '  https://github.com/settings/personal-access-tokens/new\n'
+      printf 'sbx keeps it for this sandbox only; the sandbox sees a placeholder.\n'
+      read_secret gh_token 'GitHub token (blank to skip): '
+    fi
+    if has_plugin 1pass; then
+      printf '\n1Password: a service account token from https://start.1password.com/settings/automation\n'
+      printf 'op needs it inside the sandbox, where the agent can read it.\n'
+      read_secret op_token '1Password token (blank to skip): '
+    fi
+    if has_plugin tailscale; then
+      printf '\nTailscale: a tagged auth key from https://login.tailscale.com/admin/settings/keys\n'
+      read_secret ts_key 'Tailscale auth key (blank to join later): '
+      if [[ -n "$ts_key" ]] && ! has_plugin supabase-serve; then
+        read_value ts_port 'Dev port to serve on :443 (blank to skip): '
+        [[ -z "$ts_port" || "$ts_port" =~ $port_re ]] || die "Not a port: $ts_port"
+      fi
+    fi
+  fi
   # Echo the choice: a mis-keyed toggle in the selector is otherwise silent.
   log "Agent: $agent; plugins: ${selected:-none}"
   # sbx create refuses duplicate names. Never remove or recreate an existing sandbox.
@@ -362,12 +429,40 @@ create() {
         created_but "$name" 'setting the Git identity'
     fi
   done
-  printf 'Ready: agbx %s\n' "$name"
-  printf 'Plugin smoke checks: agbx check %s\n' "$name"
-  if has_plugin tailscale; then
+  if [[ -n "$gh_token" ]]; then
+    printf '%s' "$gh_token" | sbx secret set --sandbox "$name" github ||
+      warn "Storing the GitHub token failed; retry with: agbx auth github $name"
+  elif has_plugin gh-auth; then
+    printf 'Add a GitHub token later: agbx auth github %s\n' "$name"
+  fi
+  if [[ -n "$op_token" ]]; then
+    printf 'export OP_SERVICE_ACCOUNT_TOKEN=%q\n' "$op_token" | write_guest_env "$name" OP_SERVICE_ACCOUNT_TOKEN ||
+      warn "Storing the 1Password token failed; retry with: agbx env $name OP_SERVICE_ACCOUNT_TOKEN"
+  elif has_plugin 1pass; then
+    printf 'Add a 1Password token later: agbx env %s OP_SERVICE_ACCOUNT_TOKEN\n' "$name"
+  fi
+  gh_token="" op_token=""
+  if [[ -n "$ts_key" ]]; then
+    if printf '%s\n' "$ts_key" | sbx exec -i --user root "$name" /usr/local/bin/agbx-tailscale join "$name" --auth-key-stdin; then
+      if [[ -n "$ts_port" ]]; then
+        sbx exec --user root "$name" /usr/local/bin/agbx-tailscale serve "$ts_port" ||
+          warn "Serving port $ts_port failed; retry with: agbx tailscale serve $name $ts_port"
+      fi
+    else
+      warn "Joining the tailnet failed; retry with: agbx tailscale join $name"
+    fi
+    ts_key=""
+  elif has_plugin tailscale; then
     printf 'Join your tailnet: agbx tailscale join %s\n' "$name"
+  fi
+  if has_plugin tailscale; then
     printf 'Once joined, the sandbox reaches whatever your tailnet ACLs allow, outside sbx network policy.\n'
   fi
+  offer_agent_login "$name"
+  # Last, after sbx's own "To connect" hint, so this is what stays on screen.
+  printf '\nTo open a shell in the sandbox, run:\n  » agbx %s\n' "$name"
+  if [[ "$agent" != shell ]]; then printf 'Start the agent with: agbx run %s\n' "$name"; fi
+  printf 'Check the plugins with: agbx check %s\n' "$name"
 }
 
 cmd_shell() {
@@ -382,6 +477,7 @@ cmd_shell() {
   [[ $# -ge 1 ]] || die 'Usage: shell [--with-sudo] NAME [COMMAND...]'
   name="$1"; shift
   need_sandbox "$name"
+  if [[ $# == 0 ]]; then offer_agent_login "$name"; fi
   if [[ -t 0 && -t 1 ]]; then tty=(-it); fi
   # One argument is a command line; several are a command and its
   # arguments, quoted so their boundaries survive zsh.
@@ -404,6 +500,7 @@ cmd_run() {
   local name="$1"
   shift
   need_sandbox "$name"
+  offer_agent_login "$name"
   if [[ "${1:-}" == -- ]]; then shift; fi
   if [[ $# -gt 0 ]]; then sbx run --name "$name" -- "$@"; else sbx run --name "$name"; fi
 }
@@ -506,14 +603,8 @@ cmd_env() {
     log "Stored $var as $name's sbx $service secret; the proxy injects it and the sandbox sees a placeholder."
     return
   fi
-  # The value travels on stdin and replaces any earlier entry for the same name.
-  printf 'export %s=%q\n' "$var" "$value" | sbx exec -i "$name" sh -c '
-    umask 077
-    dir="$HOME/.config/agbx"; file="$dir/env.sh"
-    mkdir -p "$dir"; touch "$file"
-    grep -v "^export $1=" "$file" > "$file.tmp" || true
-    cat >> "$file.tmp"
-    mv "$file.tmp" "$file"' sh "$var"
+  # The value travels on stdin, never as an argument.
+  printf 'export %s=%q\n' "$var" "$value" | write_guest_env "$name" "$var"
   log "Set $var in $name. The sandbox and its agent can read it; for API keys prefer sbx secret set-custom."
 }
 
@@ -668,7 +759,7 @@ version_ge() {
 }
 
 cmd_doctor() {
-  local version
+  local version service
   need_sbx
   version="$(sbx version 2>/dev/null | sed -n 's/.*version: v\{0,1\}\([0-9][0-9.]*\).*/\1/p' | head -1)"
   [[ -n "$version" ]] || die 'Could not read the sbx version'
@@ -679,6 +770,11 @@ cmd_doctor() {
     [[ -r /dev/kvm && -w /dev/kvm ]] || die '/dev/kvm is not accessible; local sandboxes need KVM and kvm group membership.'
   fi
   command -v jq >/dev/null 2>&1 || printf 'Note: kill-all and update-all need jq.\n'
+  for service in anthropic openai; do
+    if host_wide_secret "$service"; then
+      printf 'Note: a host-wide %s secret replaces each sandbox'"'"'s own sign-in (sbx secret rm %s).\n' "$service" "$service"
+    fi
+  done
   sbx ls
 }
 

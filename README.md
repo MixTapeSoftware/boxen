@@ -211,38 +211,55 @@ sbx sessions yet.
 
 ## Credentials
 
-Keep model and API credentials on the host:
+No credential comes from the host by default. Each sandbox gets its own.
+
+### Agent sign-in
+
+Claude Code and Codex sandboxes each sign in to your subscription separately,
+inside the sandbox. `create` offers the sign-in when it finishes, and so does
+entering a sandbox that is not signed in (`agbx NAME`, `agbx shell NAME`,
+`agbx run NAME`). Claude Code uses `claude auth login --claudeai`; Codex uses
+`codex login --device-auth`, a code you enter in your browser, since its usual
+`localhost` callback cannot reach a sandbox. Answer n to skip; the offer comes
+back next time.
+
+The login lives inside the sandbox, where the agent can read it, and goes away
+with the sandbox. A container recreation such as `sbx kit add` also drops it;
+the next entry offers the sign-in again.
+
+Do not store `anthropic` or `openai` secrets host-wide with `sbx secret set`:
+Docker's Claude and Codex workloads then use that one credential in every
+sandbox instead of the sandbox's own sign-in. `create` and `doctor` warn when
+one exists; remove it with `sbx secret rm anthropic` (or `openai`). Grok uses
+an xAI API key; `agbx env NAME XAI_API_KEY` stores one for that sandbox only.
+
+### Plugin keys
+
+In a terminal, `create` asks for the keys its plugins need before it starts
+provisioning. Leave any blank to skip it.
+
+| Plugin | Asks for | Where it goes |
+|---|---|---|
+| gh-auth | A fine-grained GitHub token (Contents read/write, Metadata read-only) | An sbx secret scoped to this sandbox; the proxy injects it and the sandbox sees a placeholder |
+| 1pass | A 1Password service account token | Inside the sandbox, for `op`; the agent can read it |
+| tailscale | A tagged auth key, and a dev port for :443 unless Supabase Serve is selected | Straight to the sandbox's tailnet join; not stored |
+
+Without a terminal, or after skipping, add them later:
 
 ~~~bash
-sbx secret set anthropic
-sbx secret set openai
-sbx secret set xai
-
-# A fine-grained token (Contents read/write, Metadata read-only), pasted or piped.
-./agbx auth github my-project
-op read 'op://Work/GitHub/fine-grained-token' | ./agbx auth github my-project
-
-# Or the host gh token, which carries every scope gh was granted.
-./agbx auth github my-project --from-gh
-
-# Host op must already be authenticated.
-./agbx auth 1password my-project github 'op://Work/GitHub/token'
-
-# Known API keys become proxy secrets; other values are written into the guest.
-./agbx env my-project ANTHROPIC_API_KEY
+agbx auth github my-project                     # paste a fine-grained token, or pipe one in
+op read 'op://Work/GitHub/fine-grained-token' | agbx auth github my-project
+agbx auth github my-project --from-gh           # the host gh token, with every scope gh has
+agbx env my-project OP_SERVICE_ACCOUNT_TOKEN
+agbx tailscale join my-project
+agbx auth 1password my-project github 'op://Work/GitHub/token'   # host op:// reference
 ~~~
 
-Docker resolves the host command/reference and injects the real value into
-requests to the service's declared destinations. The guest receives a placeholder.
-OAuth for built-in agents remains Docker's native flow. `env` values for other
-variables live in `~/.config/agbx/env.sh` inside the sandbox, where the
-agent can read them; for API keys, prefer
+Sandbox-scoped sbx secrets are removed with the sandbox. `env` stores known API
+keys (such as `XAI_API_KEY`) as sandbox-scoped sbx secrets; other variables
+live in `~/.config/agbx/env.sh` inside the sandbox, where the agent can read
+them. For other APIs, see
 [SBX custom secrets](https://docs.docker.com/ai/sandboxes/configuration/credentials/).
-
-The installed guest op CLI is available for workflows requiring direct vault
-access, but is not automatically authenticated. Host credential injection
-does not give guest op arbitrary vault access. Authenticating guest op separately
-makes those vault values accessible to processes in that sandbox.
 
 ## Tailscale and previews
 

@@ -33,6 +33,12 @@ if args[0] == 'ls':
         print('\\n'.join(names))
     elif '--json' in args:
         print(json.dumps({'sandboxes': [{'name': n, 'status': 'running' if n in running else 'stopped'} for n in names]}))
+elif args[:2] == ['secret', 'ls']:
+    service = args[args.index('--service') + 1]
+    have = service in os.environ.get('FAKE_GLOBAL_SECRETS', '').split(',')
+    print(json.dumps({'secrets': [{'service': service, 'scope': 'global'}] if have else []}, indent=2))
+elif args[0] == 'exec' and args[-2:] == ['/home/agent/.local/share/agbx/agent-login.sh', 'status']:
+    sys.exit(int(os.environ.get('FAKE_LOGIN_STATUS', '0')))
 elif args[0] == 'version':
     print('sbx version: v' + os.environ.get('FAKE_SBX_VERSION', '0.47.0') + ' 0411f50')
 elif args[0] == 'create':
@@ -89,7 +95,8 @@ class CLI(unittest.TestCase):
         if not self.log.exists():
             return []
         calls = [json.loads(line) for line in self.log.read_text().splitlines()]
-        return calls if everything else [c for c in calls if c["args"][0] not in ("ls", "version")]
+        return calls if everything else [c for c in calls if c["args"][0] not in ("ls", "version")
+                                         and c["args"][:2] != ["secret", "ls"]]
 
     def kits(self, args):
         return [Path(args[i + 1]).name for i, a in enumerate(args) if a == "--kit"]
@@ -210,21 +217,23 @@ class CLI(unittest.TestCase):
         self.assertIn(f"Host mounts: {self.project.resolve()} (read-write); sbx skills store (readwrite)", result.stdout)
         self.cli("create", "bad", "--skills", "everything", ok=False)
 
-    def tty(self, *args, keys=b""):
-        """Run in a pseudo-terminal, sending each key once the selector has drawn."""
+    def tty(self, *args, script=()):
+        """Run in a pseudo-terminal. script: (marker, input) pairs; each input is
+        sent once its marker appears after the previous input."""
         pid, fd = pty.fork()
         if pid == 0:
             os.chdir(self.project)
             bash = os.environ.get("TEST_BASH", "bash")
             os.execvpe(bash, [bash, str(ROOT / "agbx"), *args], self.env)
         output = b""
+        seen = 0
 
         def read_until(marker):
             nonlocal output
-            while marker not in output:
+            while marker is None or marker not in output[seen:]:
                 ready, _, _ = select.select([fd], [], [], 10)
                 if not ready:
-                    self.fail("No output from the selector: " + output.decode(errors="replace"))
+                    self.fail("Timed out waiting for %r: %s" % (marker, output.decode(errors="replace")))
                 try:
                     chunk = os.read(fd, 4096)
                 except OSError:
@@ -234,24 +243,29 @@ class CLI(unittest.TestCase):
                 output += chunk
             return True
 
-        for key in keys:
-            output = b"" if read_until(b"always included") else output
-            os.write(fd, bytes([key]))
-        while read_until(b"\x00never"):
-            pass
+        for marker, data in script:
+            if not read_until(marker):
+                break
+            seen = len(output)
+            os.write(fd, data)
+        read_until(None)
         os.close(fd)
         _, status = os.waitpid(pid, 0)
         return output.decode(errors="replace"), os.waitstatus_to_exitcode(status)
 
+    def keys(self, keys):
+        """Selector keystrokes, each sent after the selector redraws."""
+        return [(b"always included", bytes([k])) for k in keys]
+
     def test_selector_chooses_an_agent_and_kits(self):
         # Rows: shell, claude, codex, grok, then kits from fzf-bat on.
-        output, code = self.tty("create", "box", "--no-copy", "--dry-run", keys=b"j jjj \r")
+        output, code = self.tty("create", "box", "--no-copy", "--dry-run", script=self.keys(b"j jjj \r"))
         self.assertEqual(code, 0, output)
         self.assertIn("Plugins: fzf-bat,matt-pocock-skills", output)
         self.assertIn("AGBX_AGENT=claude", output)
 
     def test_selector_quits_without_creating(self):
-        output, code = self.tty("create", "box", "--no-copy", keys=b"q")
+        output, code = self.tty("create", "box", "--no-copy", script=self.keys(b"q"))
         self.assertNotEqual(code, 0)
         self.assertIn("Aborted; nothing was created", output)
         self.assertEqual(self.calls(everything=True), [])
@@ -263,6 +277,84 @@ class CLI(unittest.TestCase):
                 output, code = self.tty("create", "box", "--no-copy", "--dry-run", *args)
                 self.assertEqual(code, 0, output)
                 self.assertNotIn("choose an agent", output)
+
+    def test_plugin_keys_are_asked_for_and_stay_with_the_sandbox(self):
+        self.env["FAKE_LOGIN_STATUS"] = "10"
+        output, code = self.tty(
+            "create", "box", "--no-copy", "--plugins", "gh-auth,1pass,tailscale", "--agent", "codex",
+            script=[(b"GitHub token", b"github_pat_fake\r"), (b"1Password token", b"ops_fake'$(x)\r"),
+                    (b"Tailscale auth key", b"tskey-auth-fake\r"), (b"Dev port", b"5173\r"),
+                    (b"Sign in to your subscription now?", b"\r")])
+        self.assertEqual(code, 0, output)
+        calls = self.calls()
+        github = next(c for c in calls if c["args"][:2] == ["secret", "set"])
+        self.assertEqual(github["args"], ["secret", "set", "--sandbox", "box", "github"])
+        self.assertEqual(base64.b64decode(github["stdin_b64"]).decode(), "github_pat_fake")
+        op = next(c for c in calls if c["args"][-1] == "OP_SERVICE_ACCOUNT_TOKEN")
+        line = base64.b64decode(op["stdin_b64"]).decode()
+        self.assertEqual(subprocess.run(["bash", "-c", line + 'printf %s "$OP_SERVICE_ACCOUNT_TOKEN"'],
+                                        capture_output=True, text=True).stdout, "ops_fake'$(x)")
+        join = next(c for c in calls if "--auth-key-stdin" in c["args"])
+        self.assertEqual(join["args"], ["exec", "-i", "--user", "root", "box", "/usr/local/bin/agbx-tailscale", "join", "box", "--auth-key-stdin"])
+        self.assertEqual(base64.b64decode(join["stdin_b64"]).decode(), "tskey-auth-fake\n")
+        self.assertIn(["exec", "--user", "root", "box", "/usr/local/bin/agbx-tailscale", "serve", "5173"], [c["args"] for c in calls])
+        self.assertEqual(calls[-1]["args"], ["exec", "-it", "box", "bash", "/home/agent/.local/share/agbx/agent-login.sh", "login"])
+        for secret in ("github_pat_fake", "ops_fake", "tskey-auth-fake"):
+            self.assertNotIn(secret, json.dumps([c["args"] for c in calls]))
+            self.assertNotIn(secret, output)
+
+    def test_keys_are_asked_for_right_after_the_selector(self):
+        # From the first row, k wraps to 1pass, the last row, then gh-auth above it.
+        output, code = self.tty(
+            "create", "box", "--no-copy",
+            script=self.keys(b"k k ") + [(b"always included", b"\r"),
+                                         (b"GitHub token", b"github_pat_fake\r"),
+                                         (b"1Password token", b"ops_fake\r")])
+        self.assertEqual(code, 0, output)
+        self.assertLess(output.index("GitHub token"), output.index("1Password token"))
+        self.assertLess(output.rindex("always included"), output.index("GitHub token"))
+        github = next(c for c in self.calls() if c["args"][:2] == ["secret", "set"])
+        self.assertEqual(base64.b64decode(github["stdin_b64"]).decode(), "github_pat_fake")
+        self.assertTrue(any(c["args"][-1] == "OP_SERVICE_ACCOUNT_TOKEN" for c in self.calls()))
+
+    def test_without_a_terminal_keys_are_left_for_later(self):
+        result = self.cli("create", "box", "--no-copy", "--plugins", "gh-auth,1pass,tailscale")
+        self.assertIn("agbx auth github box", result.stdout)
+        self.assertIn("agbx env box OP_SERVICE_ACCOUNT_TOKEN", result.stdout)
+        self.assertIn("agbx tailscale join box", result.stdout)
+        self.assertFalse(any(c["args"][:2] == ["secret", "set"] or "--auth-key-stdin" in c["args"] for c in self.calls()))
+
+    def test_sign_in_is_offered_on_the_way_in(self):
+        self.sandboxes("box")
+        self.env["FAKE_LOGIN_STATUS"] = "10"
+        output, code = self.tty("box", script=[(b"Sign in to your subscription now?", b"n\r")])
+        self.assertEqual(code, 0, output)
+        self.tty("run", "box", script=[(b"Sign in to your subscription now?", b"\r")])
+        status = ["exec", "box", "bash", "/home/agent/.local/share/agbx/agent-login.sh", "status"]
+        self.assertEqual([c["args"] for c in self.calls()], [
+            status, ["exec", "-it", "box", "zsh", "-l"],
+            status, ["exec", "-it", "box", "bash", "/home/agent/.local/share/agbx/agent-login.sh", "login"],
+            ["run", "--name", "box"],
+        ])
+
+    def test_no_sign_in_offer_when_signed_in_or_running_a_command(self):
+        self.sandboxes("box")
+        output, code = self.tty("box")
+        self.assertNotIn("Sign in", output)
+        self.env["FAKE_LOGIN_STATUS"] = "10"
+        self.tty("shell", "box", "ls")
+        self.assertEqual([c["args"] for c in self.calls()], [
+            ["exec", "box", "bash", "/home/agent/.local/share/agbx/agent-login.sh", "status"],
+            ["exec", "-it", "box", "zsh", "-l"],
+            ["exec", "-it", "box", "zsh", "-lc", "ls"],
+        ])
+
+    def test_host_wide_agent_secret_is_flagged(self):
+        self.env["FAKE_GLOBAL_SECRETS"] = "anthropic"
+        result = self.cli("create", "box", "--no-copy", "--agent", "claude")
+        self.assertIn("host-wide anthropic secret", result.stderr)
+        result = self.cli("create", "other", "--no-copy", "--agent", "codex")
+        self.assertNotIn("host-wide", result.stderr)
 
     def test_resources_pass_through(self):
         self.cli("create", "box", "--no-copy", "--cpus", "2", "--memory", "1g")
@@ -326,6 +418,13 @@ class CLI(unittest.TestCase):
         result = self.cli("create", "preview", "--no-copy", "--dry-run")
         self.assertIn("Workspace: none", result.stdout)
         self.assertEqual(self.calls(everything=True), [])
+
+    def test_create_ends_with_how_to_get_in(self):
+        lines = self.cli("create", "agbx-claude-1", "--no-copy", "--agent", "claude").stdout.rstrip().splitlines()
+        self.assertEqual(lines[-4:], ["To open a shell in the sandbox, run:", "  » agbx agbx-claude-1",
+                                      "Start the agent with: agbx run agbx-claude-1",
+                                      "Check the plugins with: agbx check agbx-claude-1"])
+        self.assertNotIn("agbx run", self.cli("create", "plain", "--no-copy").stdout)
 
     def test_create_registers_the_sandbox(self):
         self.cli("create", "box", "--no-copy")
