@@ -44,8 +44,9 @@ class Kits(unittest.TestCase):
     def test_guest_paths_point_at_shipped_files(self):
         # Kits refer to each other's scripts by guest path; a rename must keep them aligned.
         shipped = {f.name for f in ROOT.glob("*/*/files/home/.local/share/agbx/*")}
-        for source in list(ROOT.glob("*/*/spec.yaml")) + list(ROOT.glob("*/*/files/home/.local/share/agbx/*")):
-            for name in re.findall(r'\.local/share/agbx/([A-Za-z0-9_-]+\.(?:sh|py))', source.read_text()):
+        sources = list(ROOT.glob("*/*/spec.yaml")) + list(ROOT.glob("*/*/files/home/.local/share/agbx/*"))
+        for source in sources + list(ROOT.glob("lib/*.sh")):
+            for name in re.findall(r'\.local/share/agbx/([A-Za-z0-9_-]+\.(?:sh|py|lua))', source.read_text()):
                 with self.subTest(source=source.name, name=name):
                     self.assertIn(name, shipped)
 

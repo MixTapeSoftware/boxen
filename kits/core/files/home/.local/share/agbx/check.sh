@@ -36,6 +36,7 @@ if [[ "$selected" == *,matt-pocock-skills,* ]]; then
 fi
 if [[ "$selected" == *,nvchad,* ]]; then
   check 'nvChad config' test -f "$HOME/.config/nvim/lua/chadrc.lua"
+  check 'nvChad plugins' nvim --headless -c "luafile $HOME/.local/share/agbx/lazy-check.lua" -c qa
   for lsp in lua-language-server gopls pyright-langserver typescript-language-server \
     bash-language-server elixir-ls; do
     check "Mason $lsp" test -x "$HOME/.local/share/nvim/mason/bin/$lsp"

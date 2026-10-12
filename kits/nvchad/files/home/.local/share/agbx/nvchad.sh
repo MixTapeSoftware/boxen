@@ -25,6 +25,8 @@ fi
 mv "$tmp/config" "$HOME/.config/nvim"
 npm install --global tree-sitter-cli@0.27.1
 nvim --headless '+Lazy! sync' +qa
+# Lazy reports clone failures but still exits 0; fail creation instead.
+nvim --headless -c "luafile $HOME/.local/share/agbx/lazy-check.lua" -c qa
 cat > "$tmp/parsers.lua" <<'EOF'
 local ok, err = pcall(function()
   require('lazy').load({ plugins = { 'nvim-treesitter' } })

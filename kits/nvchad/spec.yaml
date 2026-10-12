@@ -13,6 +13,8 @@ permissions:
     - builds.hex.pm
     - elixir-lang.org
     - registry.npmmirror.com
+    # NvChad's nvim-cmp dependency cmp-async-path is hosted on Codeberg.
+    - codeberg.org
 setup:
   install:
   - command: bash /home/agent/.local/share/agbx/nvchad.sh
