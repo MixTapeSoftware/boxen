@@ -178,6 +178,48 @@ class CLI(unittest.TestCase):
         self.assertEqual(archive.extractfile("./.hidden").read(), b"preserved")
         self.assertFalse(any(c["args"][0] in ("rm", "prune") for c in calls))
 
+    def make_tree(self, files):
+        for name in files:
+            path = self.project / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(name)
+
+    def copied(self, *args):
+        result = self.cli("create", "box", "--plugins", "none", *args)
+        stream = next(c for c in self.calls() if "tar" in c["args"])["stdin_b64"]
+        names = tarfile.open(fileobj=io.BytesIO(base64.b64decode(stream))).getnames()
+        return result.stdout, {n[2:] for n in names if n != "."}
+
+    def test_copy_skips_folders_the_sandbox_rebuilds(self):
+        self.make_tree([
+            "mix.exs", "lib/app.ex", "deps/phoenix/mix.exs", "_build/dev/app.beam",
+            "assets/package.json", "assets/node_modules/esbuild/bin", ".git/HEAD",
+            "tools/deps/notes.txt", "py/.venv/pyvenv.cfg", "py/.venv/lib/x.py", "py/app.py",
+            "web/.next/cache.json", "src/__pycache__/m.pyc", "app/[slug]/node_modules/x/i.js",
+        ])
+        stdout, names = self.copied()
+        for kept in ("mix.exs", "lib/app.ex", "assets/package.json", ".git/HEAD", "tools/deps/notes.txt", "py/app.py"):
+            self.assertIn(kept, names)
+        for skipped in ("deps", "_build", "assets/node_modules", "py/.venv", "web/.next", "src/__pycache__",
+                        "app/[slug]/node_modules"):
+            self.assertFalse(any(n == skipped or n.startswith(skipped + "/") for n in names), skipped)
+            self.assertIn("  " + skipped + "\n", stdout)
+        self.assertIn("Copy: about", stdout)
+
+    def test_copy_all_keeps_everything(self):
+        self.make_tree(["mix.exs", "deps/phoenix/mix.exs", "assets/node_modules/esbuild/bin"])
+        stdout, names = self.copied("--copy-all")
+        self.assertIn("deps/phoenix/mix.exs", names)
+        self.assertIn("assets/node_modules/esbuild/bin", names)
+        self.assertNotIn("Skipping", stdout)
+
+    def test_dry_run_shows_the_copy_plan(self):
+        self.make_tree(["mix.exs", "deps/phoenix/mix.exs"])
+        stdout = self.cli("create", "box", "--dry-run").stdout
+        self.assertIn("Copy: about", stdout)
+        self.assertIn("  deps\n", stdout)
+        self.assertEqual(self.calls(everything=True), [])
+
     def test_explicit_mount_has_no_workspace_volume(self):
         self.cli("create", "mount", str(self.project), "--mode", "mount", "--plugins", "none")
         args = self.calls()[0]["args"]

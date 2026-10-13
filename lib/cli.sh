@@ -59,6 +59,8 @@ agbx create NAME [DIRECTORY] [options]      (also: init, -i)
   --claude --codex --grok        Shorthand flags; added to the selection
   --cpus N --memory SIZE         Default: 4 CPUs (at most the host's), 4g
   --ack-env                      Copy .env files without asking
+  --copy-all                     Also copy node_modules, deps, _build and other
+                                 folders the sandbox rebuilds
   --no-tui                       Skip the interactive selector; use flags and defaults
   --dry-run                      Print the creation plan without creating
 
@@ -188,14 +190,76 @@ confirm_env_files() {
   fi
   die 'Stopped before creating anything. Remove the files, or pass --ack-env to include them.'
 }
+# Dependency and build folders the sandbox rebuilds for itself, as ./ paths.
+# They are most of a copy's bytes, and host builds are often the wrong
+# platform for Linux. Folders with generic names count only beside the file
+# that makes them a build folder.
+copy_skips() {
+  local dir="$1" path
+  while IFS= read -r path; do
+    [[ -n "$path" && "$path" != "$dir" ]] || continue
+    case "${path##*/}" in
+      _build|deps|.elixir_ls|.lexical) [[ -f "${path%/*}/mix.exs" ]] || continue ;;
+      target) [[ -f "${path%/*}/Cargo.toml" ]] || continue ;;
+      .venv|venv) [[ -f "$path/pyvenv.cfg" ]] || continue ;;
+    esac
+    printf './%s\n' "${path#"$dir"/}"
+  done < <(find "$dir" -name .git -prune -o -type d \( -name node_modules -o -name _build \
+      -o -name deps -o -name .elixir_ls -o -name .lexical -o -name target -o -name .venv \
+      -o -name venv -o -name __pycache__ -o -name .pytest_cache -o -name .mypy_cache \
+      -o -name .ruff_cache -o -name .next -o -name .nuxt -o -name .svelte-kit -o -name .turbo \
+      -o -name .parcel-cache \) -prune -print)
+}
+# Total KiB of the given paths.
+size_kib() { du -sk "$@" 2>/dev/null | awk '{ s += $1 } END { print s + 0 }'; }
+human_kib() {
+  awk -v k="$1" 'BEGIN { if (k >= 1048576) printf "%.1f GiB", k / 1048576
+    else if (k >= 1024) printf "%.0f MiB", k / 1024; else printf "%d KiB", k }'
+}
+# A progress bar when pv is installed; otherwise the stream passes through.
+meter() {
+  if [[ -t 2 ]] && command -v pv >/dev/null 2>&1; then pv -s "$1"; else cat; fi
+}
+# DIRECTORY SKIPS: KiB the copy will send.
+copy_size() {
+  local skip total skipped=0 paths=()
+  total="$(size_kib "$1")"
+  while IFS= read -r skip; do
+    if [[ -n "$skip" ]]; then paths+=("$1/${skip#./}"); fi
+  done <<< "$2"
+  if [[ ${#paths[@]} -gt 0 ]]; then skipped="$(size_kib "${paths[@]}")"; fi
+  if (( total > skipped )); then echo $((total - skipped)); else echo 0; fi
+}
+# KIB SKIPS
+copy_summary() {
+  local skip count=0
+  printf 'Copy: about %s\n' "$(human_kib "$1")"
+  [[ -n "$2" ]] || return 0
+  printf 'Skipping folders the sandbox rebuilds (--copy-all copies them):\n'
+  while IFS= read -r skip; do
+    count=$((count + 1))
+    if (( count <= 10 )); then printf '  %s\n' "${skip#./}"; fi
+  done <<< "$2"
+  if (( count > 10 )); then printf '  and %d more\n' "$((count - 10))"; fi
+}
+# NAME DIRECTORY SKIPS BYTES
 copy_workspace() {
-  local name="$1" directory="$2" archive
-  archive=(tar -C "$directory" -cf - .)
+  local name="$1" directory="$2" skip prune=() mac=()
+  while IFS= read -r skip; do
+    [[ -n "$skip" ]] || continue
+    if [[ ${#prune[@]} -gt 0 ]]; then prune+=(-o); fi
+    prune+=(-path "$skip")
+  done <<< "$(printf '%s\n' "$3" | sed 's/[][*?\\]/\\&/g')" # literal, not glob
+  if [[ ${#prune[@]} -gt 0 ]]; then prune=('(' "${prune[@]}" ')' -prune -o); fi
   if tar --version 2>/dev/null | grep -q bsdtar; then
     # macOS: no AppleDouble ._ files, resource forks or extended attributes.
-    archive=(tar --no-mac-metadata --no-xattrs -C "$directory" -cf - .)
+    mac=(--no-mac-metadata --no-xattrs)
   fi
-  COPYFILE_DISABLE=1 "${archive[@]}" |
+  # find names every path to send: tar's own --exclude matches nested
+  # folders of the same name on macOS, so tools/deps would vanish with ./deps.
+  (cd "$directory" && find . ${prune[@]+"${prune[@]}"} -print0) |
+    COPYFILE_DISABLE=1 tar -cf - ${mac[@]+"${mac[@]}"} -C "$directory" --null --no-recursion -T - |
+    meter "$4" |
     sbx exec -i --workdir /home/agent/workspace "$name" \
       tar --no-same-owner --warning=no-unknown-keyword -xf -
 }
@@ -252,6 +316,7 @@ write_guest_env() {
 create() {
   local name="" directory="" agent="" requested="$DEFAULT_PLUGINS" flagged="" mode=""
   local dry=0 ack_env=0 memory="${AGBX_MEMORY:-4g}" cpus="${AGBX_CPUS:-}"
+  local copy_all=0 skips="" copy_kib=0
   # Nothing from the host is mounted unless asked: no workspace mount, no
   # shared skills store (sbx's own default is a read-only link).
   local skills=off mounts="" tui=1 chose_plugins=0
@@ -289,6 +354,7 @@ create() {
       --cpus) need_value "$@"; cpus="$2"; shift 2 ;;
       --memory) need_value "$@"; memory="$2"; shift 2 ;;
       --ack-env) ack_env=1; shift ;;
+      --copy-all) copy_all=1; shift ;;
       --no-tui) tui=0; shift ;;
       --dry-run) dry=1; shift ;;
       -f|--from|-t|--template) die 'Templates are not supported: a template could carry a Tailscale identity.' ;;
@@ -372,9 +438,14 @@ create() {
   command+=("$workload")
   case "$mode" in mount|clone) command+=("$directory") ;; esac
   case "$mode" in copy|mount) confirm_env_files "$directory" "$ack_env" "$dry" ;; esac
+  if [[ "$mode" == copy ]]; then
+    if [[ "$copy_all" == 0 ]]; then skips="$(copy_skips "$directory")"; fi
+    copy_kib="$(copy_size "$directory" "$skips")"
+  fi
   if [[ "$dry" == 1 ]]; then
     printf '%q ' "$SBX_BIN" "${command[@]}"; printf '\n'
     printf 'Workspace: %s%s\n' "$mode" "${directory:+ ($directory)}"
+    if [[ "$mode" == copy ]]; then copy_summary "$copy_kib" "$skips"; fi
     printf 'Plugins: %s\n' "${selected:-none}"
     printf 'Host mounts: %s\n' "${mounts:-none}"
     printf 'Start detached, then configure Git identity. No credentials are copied.\n'
@@ -411,12 +482,14 @@ create() {
   # sbx create refuses duplicate names. Never remove or recreate an existing sandbox.
   sbx "${command[@]}"
   register "$name"
-  sbx run --detached --name "$name" || created_but "$name" 'starting it'
+  # Quiet: it prints only the sandbox ID.
+  sbx run --detached --name "$name" >/dev/null || created_but "$name" 'starting it'
   if [[ "$mode" == copy ]]; then
-    log "Copying $directory into /workspace, including .git and uncommitted files..."
+    log "Copying $directory into /workspace, including .git and uncommitted files"
+    copy_summary "$copy_kib" "$skips"
     sbx exec --user root "$name" install -d -o 1000 -g 1000 /home/agent/workspace ||
       created_but "$name" 'preparing /workspace'
-    copy_workspace "$name" "$directory" || created_but "$name" "copying $directory"
+    copy_workspace "$name" "$directory" "$skips" "$((copy_kib * 1024))" || created_but "$name" "copying $directory"
   fi
   for identity in name email; do
     if [[ -n "$directory" ]]; then

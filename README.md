@@ -113,6 +113,18 @@ When the directory holds `.env` files, it lists them and asks before copying
 (or mounting); `--ack-env` skips the question. From macOS, the copy omits
 AppleDouble `._` files and extended attributes.
 
+The copy skips folders the sandbox rebuilds, which are usually most of its
+bytes and are often built for the host's platform rather than Linux:
+`node_modules`, Python virtualenvs and caches, framework caches such as `.next`,
+and `deps`, `_build` or `target` beside `mix.exs` or `Cargo.toml`. Run your
+install step in the sandbox afterwards, or pass `--copy-all` to copy them anyway.
+`create` and `--dry-run` print the copy's size and the skipped folders; with
+`pv` installed, `create` also shows a progress bar.
+
+A large copy takes a while because every byte crosses into the sandbox's
+microVM and is written to its own disk. `--mode mount` avoids the
+copy, at the cost of sharing your files read-write.
+
 ### Host mounts
 
 By default nothing from the host is mounted into a sandbox, whichever agent it
