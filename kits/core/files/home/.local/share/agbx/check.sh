@@ -30,10 +30,6 @@ if [[ "$selected" == *,chromium,* ]]; then
   check 'Browser launch' node -e 'const {chromium}=require("playwright"); (async()=>{const b=await chromium.launch();const p=await b.newPage();await p.setContent("<title>agbx</title>");if(await p.title()!=="agbx")throw Error("title");await b.close()})().catch(e=>{console.error(e);process.exit(1)})'
   check 'ChromeDriver session' python3 "$HOME/.local/share/agbx/browser-check.py"
 fi
-if [[ "$selected" == *,matt-pocock-skills,* ]]; then
-  check 'Shared skills' test -f "$HOME/.agents/skills/setup-matt-pocock-skills/SKILL.md"
-  check 'Claude skills' test -f "$HOME/.claude/skills/setup-matt-pocock-skills/SKILL.md"
-fi
 if [[ "$selected" == *,nvchad,* ]]; then
   check 'nvChad config' test -f "$HOME/.config/nvim/lua/chadrc.lua"
   check 'nvChad plugins' nvim --headless -c "luafile $HOME/.local/share/agbx/lazy-check.lua" -c qa

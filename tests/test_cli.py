@@ -13,7 +13,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-KITS = "fzf-bat just glow mermaid-ascii overmind cubic chromium nvchad rtkplus matt-pocock-skills tailscale supabase-serve gh-auth 1pass".split()
+KITS = "fzf-bat just glow mermaid-ascii overmind cubic chromium nvchad rtkplus tailscale supabase-serve gh-auth 1pass".split()
 
 FAKE_SBX = """#!/usr/bin/env python3
 import base64, json, os, sys
@@ -132,8 +132,8 @@ class CLI(unittest.TestCase):
     def test_default_plugins_and_resources(self):
         self.cli("create", "box", "--no-copy")
         args = self.calls()[0]["args"]
-        self.assertEqual(self.kits(args), ["core", "workspace", "matt-pocock-skills"])
-        self.assertIn("AGBX_PLUGINS=matt-pocock-skills", args)
+        self.assertEqual(self.kits(args), ["core", "workspace"])
+        self.assertIn("AGBX_PLUGINS=", args)
         self.assertEqual(args[args.index("--memory") + 1], "4g")
         self.assertLessEqual(int(args[args.index("--cpus") + 1]), 4)
 
@@ -154,7 +154,7 @@ class CLI(unittest.TestCase):
     def test_plugin_flags_add_to_the_defaults(self):
         self.cli("create", "box", "--no-copy", "--tailscale", "--gh-token", "--1pass", "--claude", "--no-tui")
         args = self.calls()[0]["args"]
-        self.assertEqual(self.kits(args), ["core", "workspace", "matt-pocock-skills", "tailscale", "gh-auth", "1pass"])
+        self.assertEqual(self.kits(args), ["core", "workspace", "tailscale", "gh-auth", "1pass"])
         self.assertEqual(args[-1], "claude")
 
     def test_docker_is_always_included_not_chosen(self):
@@ -268,7 +268,7 @@ class CLI(unittest.TestCase):
         # Rows: shell, claude, codex, grok, then kits from fzf-bat on.
         output, code = self.tty("create", "box", "--no-copy", "--dry-run", script=self.keys(b"j jjj \r"))
         self.assertEqual(code, 0, output)
-        self.assertIn("Plugins: fzf-bat,matt-pocock-skills", output)
+        self.assertIn("Plugins: fzf-bat\r\n", output)
         self.assertIn("AGBX_AGENT=claude", output)
         self.assertLess(output.index("Docker (Engine and Compose) and the core tools: always included"),
                         output.index("Agent (one per sandbox)"))
