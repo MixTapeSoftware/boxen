@@ -1,5 +1,4 @@
 Plugin	What it installs
-docker	Docker Engine and Compose; native to every sandbox
 fzf-bat	fzf and bat through mise, with f and gdiff shell helpers
 just	just through mise
 glow	Glow through mise

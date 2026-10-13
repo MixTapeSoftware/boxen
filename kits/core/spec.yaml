@@ -30,6 +30,11 @@ permissions:
     - proxy.golang.org
     - sum.golang.org
     - storage.googleapis.com
+    # The CDN for public.ecr.aws image layers, such as Supabase's. Every
+    # sandbox has Docker, and sbx's Balanced preset allows the registry but
+    # not these hosts, so pulls from it fail without them.
+    - d5l0dvt14r5h8.cloudfront.net
+    - d2glxqk2uabbnd.cloudfront.net
 setup:
   install:
   - command: bash /home/agent/.local/share/agbx/core-root.sh

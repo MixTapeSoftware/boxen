@@ -1,9 +1,10 @@
 # Sourced by agbx. Credentials are never accepted as command arguments.
 # Bash 3.2: no associative arrays; guard empty arrays under set -u.
 
-# Optional kits in install order. Docker is native to the base image.
+# Optional kits in install order. Docker is native to every sandbox, so there
+# is nothing to choose.
 KITS="fzf-bat just glow mermaid-ascii overmind cubic chromium nvchad rtkplus matt-pocock-skills tailscale supabase-serve gh-auth 1pass"
-PLUGINS="docker $KITS"
+PLUGINS="$KITS"
 # Only Matt Pocock skills is selected by default.
 DEFAULT_PLUGINS="matt-pocock-skills"
 AGENTS="shell claude codex grok"
@@ -265,7 +266,8 @@ create() {
       --codex) set_agent codex; shift ;;
       --grok|--grokbot) set_agent grok; shift ;;
       --plugins) need_value "$@"; requested="$2"; chose_plugins=1; shift 2 ;;
-      --docker|--cubic|--matt-pocock-skills|--tailscale|--supabase-serve|--1pass)
+      --docker) shift ;; # Always included
+      --cubic|--matt-pocock-skills|--tailscale|--supabase-serve|--1pass)
         flagged="${flagged:+$flagged,}${1#--}"; shift ;;
       --gh-token) flagged="${flagged:+$flagged,}gh-auth"; shift ;;
       -p|--path)
@@ -332,7 +334,7 @@ create() {
   IFS=, read -r -a items <<< "${requested}${flagged:+,$flagged}"
   for item in "${items[@]+"${items[@]}"}"; do
     case "$item" in
-      '') continue ;;
+      ''|docker) continue ;; # Docker is always included
       chadmux) die 'Chadmux/tmux integration is intentionally excluded.' ;;
       claude-code|codex|grok) die "Select the agent with --agent (one per sandbox), not --plugins $item." ;;
     esac
