@@ -89,8 +89,9 @@ agbx create base --plugins none
 agbx create preview --dry-run
 ~~~
 
-The core kit always supplies build libraries and the development shell.
-Supabase Serve automatically selects Tailscale. Each sandbox runs one agent
+The core kit always supplies build libraries and the development shell, and
+every sandbox has Docker, so neither appears as a choice. Supabase Serve
+automatically selects Tailscale. Each sandbox runs one agent
 workload; create a second sandbox for another agent.
 
 ## Workspace behavior
@@ -157,7 +158,7 @@ that session only. Agents are told to ask you instead of using sudo.
 
 | Kit | What it installs |
 |---|---|
-| Docker | Native private Docker Engine and Compose |
+| Docker | Native private Docker Engine and Compose; always included, so there is nothing to choose |
 | Chromium/Playwright | Playwright 1.61.1 with Chromium; an additional **matched** Chrome for Testing/ChromeDriver pair for Wallaby |
 | fzf + bat | mise-managed tools, f and gdiff shell helpers |
 | Claude Code | Docker's Claude workload; derived workload adds separate RTK settings |
@@ -187,6 +188,9 @@ sums. The Grok, cubic and RTK installers come from their vendors' scripts.
 
 Network rules for hosts most kits share (GitHub, Ubuntu, Node, Go) live in the
 core kit, which every sandbox has; each optional kit lists only its own extras.
+Core also allows the CloudFront hosts that serve `public.ecr.aws` image layers,
+such as Supabase's local stack: sbx's Balanced preset allows the registry but not
+its CDN, so those pulls fail without them.
 Rules last for the sandbox's lifetime, including install-time hosts such as
 `storage.googleapis.com`.
 

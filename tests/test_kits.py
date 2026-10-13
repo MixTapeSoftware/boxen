@@ -51,10 +51,10 @@ class Kits(unittest.TestCase):
                     self.assertIn(name, shipped)
 
     def test_plugin_list_matches_the_launcher(self):
-        plugins = re.search(r'^PLUGINS="docker \$KITS"', CLI, re.M)
+        plugins = re.search(r'^PLUGINS="\$KITS"', CLI, re.M)
         self.assertIsNotNone(plugins)
         listed = [line.split("\t")[0] for line in (ROOT / "plugins.tsv").read_text().splitlines()[1:]]
-        self.assertEqual(listed, ["docker"] + KITS)
+        self.assertEqual(listed, KITS)
 
     def test_identity_is_a_separate_volume_and_no_credentials_are_bundled(self):
         volume = spec("tailscale")["volumes"][0]
@@ -65,6 +65,11 @@ class Kits(unittest.TestCase):
                 self.assertNotEqual(asset.name, "tailscaled.state")
                 self.assertNotRegex(asset.read_text(), r'tskey-auth-[A-Za-z0-9]+')
                 self.assertNotIn("export OP_SERVICE_ACCOUNT_TOKEN=", asset.read_text())
+
+    def test_every_sandbox_can_pull_public_ecr_images(self):
+        # Docker is in every sandbox; public.ecr.aws serves layers from these.
+        for host in ("d5l0dvt14r5h8.cloudfront.net", "d2glxqk2uabbnd.cloudfront.net"):
+            self.assertIn(host, allowed("core"))
 
     def test_copied_workspace_lives_on_a_volume(self):
         # sbx kit add recreates the container and keeps only volumes and mounts.

@@ -4,15 +4,13 @@
 
 tui_select() {
   local ids=() descs=() kinds=() marks=() id desc i count cursor=0 key seq mark
-  local first_plugin keep_docker=""
+  local first_plugin
   # One agent per sandbox: a pick-one group above the plugin checkboxes.
   ids=(shell claude codex grok)
   descs=('No coding agent; a zsh workload' 'Claude Code' 'Codex' 'Grok Build')
   kinds=(agent agent agent agent)
   first_plugin=${#ids[@]}
   while IFS=$'\t' read -r id desc; do
-    # Docker is native to every sandbox; there is nothing to choose.
-    [[ "$id" != docker ]] || continue
     ids+=("$id"); descs+=("$desc"); kinds+=(plugin)
   done < <(tail -n +2 "$PROJECT_DIR/plugins.tsv")
   count=${#ids[@]}
@@ -22,13 +20,13 @@ tui_select() {
     elif has_plugin "${ids[i]}"; then marks[i]=1
     else marks[i]=0; fi
   done
-  if has_plugin docker; then keep_docker=docker; fi
 
   tput civis 2>/dev/null || true
   while true; do
     printf '\033[2J\033[H'
     printf '  Create %s: choose an agent and kits\n' "$name"
     printf '  Up/Down or j/k: move   Space: choose   Enter: create   q: quit\n\n'
+    printf '  Docker (Engine and Compose) and the core tools: always included\n\n'
     printf '  Agent (one per sandbox)\n'
     for ((i = 0; i < count; i++)); do
       if [[ $i == "$first_plugin" ]]; then printf '\n  Kits\n'; fi
@@ -43,7 +41,6 @@ tui_select() {
         printf '   %s %-20s %s\n' "$mark" "${ids[i]}" "${descs[i]}"
       fi
     done
-    printf '\n  Core tools and Docker are always included.\n'
 
     IFS= read -rsn1 key || key=q
     case "$key" in
@@ -71,7 +68,7 @@ tui_select() {
   tput cnorm 2>/dev/null || true
   printf '\033[2J\033[H'
 
-  selected="$keep_docker"
+  selected=""
   for ((i = 0; i < count; i++)); do
     [[ "${marks[i]}" == 1 ]] || continue
     if [[ "${kinds[i]}" == agent ]]; then agent="${ids[i]}"; else add_plugin "${ids[i]}"; fi

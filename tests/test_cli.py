@@ -157,6 +157,13 @@ class CLI(unittest.TestCase):
         self.assertEqual(self.kits(args), ["core", "workspace", "matt-pocock-skills", "tailscale", "gh-auth", "1pass"])
         self.assertEqual(args[-1], "claude")
 
+    def test_docker_is_always_included_not_chosen(self):
+        self.cli("create", "box", "--no-copy", "--docker", "--plugins", "docker,gh-auth")
+        args = self.calls()[0]["args"]
+        self.assertEqual(self.kits(args), ["core", "workspace", "gh-auth"])
+        self.assertIn("AGBX_PLUGINS=gh-auth", args)
+        self.assertNotIn("docker", self.cli("plugins").stdout)
+
     def test_one_agent_per_sandbox(self):
         self.cli("create", "box", "--no-copy", "--agent", "claude", "--agent", "codex", ok=False)
         self.cli("create", "box", "--no-copy", "--claude", "--codex", ok=False)
@@ -305,6 +312,8 @@ class CLI(unittest.TestCase):
         self.assertEqual(code, 0, output)
         self.assertIn("Plugins: fzf-bat,matt-pocock-skills", output)
         self.assertIn("AGBX_AGENT=claude", output)
+        self.assertLess(output.index("Docker (Engine and Compose) and the core tools: always included"),
+                        output.index("Agent (one per sandbox)"))
 
     def test_selector_quits_without_creating(self):
         output, code = self.tty("create", "box", "--no-copy", script=self.keys(b"q"))
