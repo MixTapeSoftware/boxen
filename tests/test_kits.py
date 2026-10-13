@@ -98,6 +98,13 @@ class Kits(unittest.TestCase):
                 if downloads:
                     self.assertIn("sha256sum -c", text)
 
+    def test_nvchad_steps_are_time_limited(self):
+        # A stalled download or headless nvim must fail creation, not hang it.
+        script = (ROOT / "kits/nvchad/files/home/.local/share/agbx/nvchad.sh").read_text()
+        for line in script.replace("\\\n", " ").splitlines():
+            with self.subTest(line=line):
+                self.assertNotRegex(line, r'^\s*(curl|nvim|npm|git clone) ')
+
     def test_proxy_preserved_and_managed_settings_untouched(self):
         core = (ROOT / "kits/core/files/home/.local/share/agbx/core-root.sh").read_text()
         self.assertNotIn("export HTTP_PROXY=", core)
