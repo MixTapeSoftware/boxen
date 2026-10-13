@@ -8,7 +8,6 @@ cubic	cubic CLI (interactive account login on first use)
 chromium	Playwright plus a matched Chrome for Testing and ChromeDriver
 nvchad	chadfennell/nvChad, Neovim, tree-sitter parsers and six Mason LSPs
 rtkplus	RTK CLI, Codex hooks and separate Claude settings
-matt-pocock-skills	Matt Pocock's agent skills, inside the sandbox
 tailscale	Userspace daemon, per-sandbox identity and state volume
 supabase-serve	Seven tailnet HTTPS routes for an app and Supabase; adds tailscale
 gh-auth	Git credential helper; token from agbx auth github

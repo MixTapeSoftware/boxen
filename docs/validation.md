@@ -5,7 +5,8 @@ initially had 3.8 GiB RAM; resumed testing used 5.8 GiB, without swap. This is
 a prototype, not a completed cross-platform or authenticated integration test.
 
 The project was later renamed from agent-sbx to AgentSBX, with the `agbx`
-command. Sandbox names below are as they were at the time.
+command. Sandbox names below are as they were at the time. The Matt Pocock
+skills kit was later removed, so no kit is selected by default.
 
 ## Checks that passed
 

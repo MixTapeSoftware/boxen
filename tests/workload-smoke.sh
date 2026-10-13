@@ -83,7 +83,7 @@ p = Path(sys.argv[1])
 PY
 started=1
 "$project/agbx" create "$name" "$fixture" --agent "$agent" \
-  --plugins rtkplus,matt-pocock-skills,gh-auth --cpus 2 --memory 1g
+  --plugins rtkplus,gh-auth --cpus 2 --memory 1g
 "$project/agbx" check "$name"
 "$sbx_bin" exec "$name" "$agent" --version
 # Exercise the selected workload's entrypoint, including Claude's extra settings.
