@@ -3,10 +3,10 @@
 
 # Optional kits in install order. Docker is native to every sandbox, so there
 # is nothing to choose.
-KITS="fzf-bat just glow mermaid-ascii overmind cubic chromium nvchad rtkplus matt-pocock-skills tailscale supabase-serve gh-auth 1pass"
+KITS="fzf-bat just glow mermaid-ascii overmind cubic chromium nvchad rtkplus tailscale supabase-serve gh-auth 1pass"
 PLUGINS="$KITS"
-# Only Matt Pocock skills is selected by default.
-DEFAULT_PLUGINS="matt-pocock-skills"
+# No kit is selected by default.
+DEFAULT_PLUGINS=""
 AGENTS="shell claude codex grok"
 # env variables that sbx can inject through its proxy instead of the guest.
 SERVICE_VARS="ANTHROPIC_API_KEY:anthropic OPENAI_API_KEY:openai XAI_API_KEY:xai GH_TOKEN:github GITHUB_TOKEN:github GROQ_API_KEY:groq MISTRAL_API_KEY:mistral OPENROUTER_API_KEY:openrouter GEMINI_API_KEY:google GOOGLE_API_KEY:google"
@@ -55,8 +55,8 @@ agbx create NAME [DIRECTORY] [options]      (also: init, -i)
   --agent shell|claude|codex|grok
                                  One per sandbox. Default: shell
   --plugins default|all|none|ID,ID,...
-                                 Default: matt-pocock-skills
-  --tailscale --supabase-serve --gh-token --1pass --cubic --matt-pocock-skills
+                                 Default: none
+  --tailscale --supabase-serve --gh-token --1pass --cubic
   --claude --codex --grok        Shorthand flags; added to the selection
   --cpus N --memory SIZE         Default: 4 CPUs (at most the host's), 4g
   --ack-env                      Copy .env files without asking
@@ -267,7 +267,7 @@ create() {
       --grok|--grokbot) set_agent grok; shift ;;
       --plugins) need_value "$@"; requested="$2"; chose_plugins=1; shift 2 ;;
       --docker) shift ;; # Always included
-      --cubic|--matt-pocock-skills|--tailscale|--supabase-serve|--1pass)
+      --cubic|--tailscale|--supabase-serve|--1pass)
         flagged="${flagged:+$flagged,}${1#--}"; shift ;;
       --gh-token) flagged="${flagged:+$flagged,}gh-auth"; shift ;;
       -p|--path)

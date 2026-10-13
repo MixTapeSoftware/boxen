@@ -74,9 +74,9 @@ recreate such as `sbx kit add` starts again from the image.
 
 In a terminal, `create` opens a selector: choose one agent and any kits. Arrow
 keys or j/k move, Space chooses, Enter creates, and q quits without creating
-anything. Only Matt Pocock Skills starts selected, and these flags pre-select
-more: `--agent NAME`, `--claude`, `--codex`, `--grok`, `--tailscale`,
-`--supabase-serve`, `--gh-token`, `--1pass`, `--cubic`, `--matt-pocock-skills`.
+anything. No kit starts selected, and these flags pre-select some:
+`--agent NAME`, `--claude`, `--codex`, `--grok`, `--tailscale`,
+`--supabase-serve`, `--gh-token`, `--1pass`, `--cubic`.
 
 `--plugins` chooses without the selector, as do `--no-tui` and non-interactive
 runs:
@@ -159,7 +159,6 @@ that session only. Agents are told to ask you instead of using sudo.
 | cubic | Official user-level installer; log in on first use |
 | nvChad / Chadception | Your chadfennell/nvChad config, Neovim, tree-sitter parsers, and six Mason LSPs |
 | RTK | Version 0.51.0, Codex hooks, and a separate Claude settings file |
-| Matt Pocock Skills | Sandbox-local shared skills for Claude, Codex, and Grok |
 | Tailscale | Userspace daemon, per-sandbox identity, persistent state volume |
 | Supabase Serve | The same seven HTTPS routes |
 | GitHub Auth | Native SBX credential injection plus Git helper/identity configuration |
