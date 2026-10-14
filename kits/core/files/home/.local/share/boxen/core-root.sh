@@ -30,6 +30,9 @@ if ! grep -qF '# boxen environment' /etc/sandbox-persistent.sh; then
 # boxen environment
 export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$HOME/.cubic/bin:$PATH"
 export MISE_GIX=false
+# Trust mise config anywhere in the workspace, including repositories copied or
+# cloned there after setup, so mise never stops to ask for mise trust.
+export MISE_TRUSTED_CONFIG_PATHS=/home/agent/workspace
 export npm_config_prefix="$HOME/.local"
 export NODE_PATH="$HOME/.local/lib/node_modules${NODE_PATH:+:$NODE_PATH}"
 if [ -n "${HTTP_PROXY:-}" ]; then

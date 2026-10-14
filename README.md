@@ -178,8 +178,10 @@ that session only. Agents are told to ask you instead of using sudo.
 
 The core kit includes mise, Node 22, Go, zsh, Oh My Zsh with your dpoggi theme
 and autosuggestions, GitHub CLI, database clients, and common build
-dependencies. Shared host skills are disabled when creating these environments;
-skill installation stays inside each sandbox.
+dependencies. mise trusts config files anywhere under `/workspace`, so a
+project's `mise.toml` loads without `mise trust`. Shared host skills are
+disabled when creating these environments; skill installation stays inside each
+sandbox.
 
 Tools are pinned. Downloads of pinned binaries (mise, Tailscale, the 1Password
 CLI, Chrome for Testing, Neovim, mermaid-ascii) are checked against SHA-256
