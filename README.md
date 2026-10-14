@@ -187,7 +187,7 @@ that session only. Agents are told to ask you instead of using sudo.
 | mermaid-ascii | Version 1.4.0, architecture-specific release |
 | Overmind | Go-installed CLI and its tmux runtime dependency |
 | cubic | Official user-level installer; log in on first use |
-| nvChad / Chadception | Your chadfennell/nvChad config, Neovim, tree-sitter parsers, and six Mason LSPs |
+| nvChad / Chadception | chadfennell/nvChad nvim custom config, Neovim, tree-sitter parsers, and six Mason LSPs |
 | RTK | Version 0.51.0, Codex hooks, and a separate Claude settings file |
 | Tailscale | Userspace daemon, per-sandbox identity, persistent state volume |
 | Supabase Serve | The same seven HTTPS routes |
