@@ -191,7 +191,9 @@ Network rules for hosts most kits share (GitHub, Ubuntu, Node, Go) live in the
 core kit, which every sandbox has; each optional kit lists only its own extras.
 Core also allows the CloudFront hosts that serve `public.ecr.aws` image layers,
 such as Supabase's local stack: sbx's Balanced preset allows the registry but not
-its CDN, so those pulls fail without them.
+its CDN, so those pulls fail without them. It allows `deno.land`, which the
+Supabase CLI's edge runtime imports from when it starts, and Supabase's hosted
+MCP server at `mcp.supabase.com`.
 Rules last for the sandbox's lifetime, including install-time hosts such as
 `storage.googleapis.com`.
 
