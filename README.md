@@ -274,11 +274,62 @@ boxen tailscale join my-project
 boxen auth 1password my-project github 'op://Work/GitHub/token'  # host op:// reference
 ~~~
 
-Sandbox-scoped sbx secrets are removed with the sandbox. `env` stores known API
-keys (such as `XAI_API_KEY`) as sandbox-scoped sbx secrets; other variables
-live in `~/.config/boxen/env.sh` inside the sandbox, where the agent can read
-them. For other APIs, see
-[SBX custom secrets](https://docs.docker.com/ai/sandboxes/configuration/credentials/).
+Sandbox-scoped sbx secrets are removed with the sandbox.
+
+### Other tokens and variables
+
+`boxen env NAME VAR` sets `VAR` in a sandbox. `VAR` is the variable's name; the
+value comes from a hidden prompt or stdin, never an argument:
+
+~~~bash
+boxen env my-project SOME_TOKEN                  # prompts for the value
+op read 'op://Work/Some/token' | boxen env my-project SOME_TOKEN
+~~~
+
+Where the value goes depends on the name:
+
+| Name | Stored as | The sandbox sees |
+|---|---|---|
+| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `GH_TOKEN`, `GITHUB_TOKEN`, `GROQ_API_KEY`, `MISTRAL_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` | A sandbox-scoped sbx secret for that service | A placeholder; the proxy injects the real value |
+| Anything else | A line in `~/.config/boxen/env.sh` inside the sandbox, loaded by every shell | The real value, which the agent can read |
+
+For a token that only travels to an API, keep it out of the sandbox with an
+[sbx custom secret](https://docs.docker.com/ai/sandboxes/configuration/credentials/#custom-secrets)
+instead. Run on the host:
+
+~~~bash
+sbx secret set-custom --sandbox my-project \
+  --host api.example.com \
+  --env EXAMPLE_API_KEY \
+  --ref 'op://Work/Example/api-key'     # or --command 'example-cli token'
+~~~
+
+The command prints a placeholder (`sbx-cs-…`). When a request to a listed host
+contains it, in a header or the body, the proxy swaps in the real value. A
+sandbox that already exists does not get the variable, so store the
+placeholder, which is not secret, with `boxen env`:
+
+~~~bash
+printf '%s' 'sbx-cs-…' | boxen env my-project EXAMPLE_API_KEY
+~~~
+
+Repeat `--host` for more domains; `*.example.com` matches one label. Avoid
+`--value`, which leaves the token in shell history. sbx marks custom secrets as
+experimental. Use `boxen env` alone when the program needs the token itself,
+such as to sign requests or build a connection string.
+
+Only requests through the sbx proxy get the real value. Code run directly in
+the sandbox uses it already. Containers the sandbox's Docker runs, such as
+Supabase's edge functions, reach the internet without it and send the bare
+placeholder; give them `HTTPS_PROXY` and the proxy's CA certificate
+(`$PROXY_CA_CERT_B64`, base64) to get the swap.
+
+`sbx secret ls` on the host lists secrets with masked values. To see which
+variables a sandbox's `env.sh` sets, without the values:
+
+~~~bash
+sbx exec my-project sh -c 'sed -n "s/^export \([^=]*\)=.*/\1/p" ~/.config/boxen/env.sh'
+~~~
 
 ## Tailscale and previews
 
