@@ -4,9 +4,7 @@ Tested on 2026-10-12 with SBX 0.47.0, Linux amd64, and nested KVM. The host
 initially had 3.8 GiB RAM; resumed testing used 5.8 GiB, without swap. This is
 a prototype, not a completed cross-platform or authenticated integration test.
 
-The project was later renamed from agent-sbx to AgentSBX (`agbx`), then to
-Boxen (`boxen`). Sandbox names below are as they were at the time. The Matt Pocock
-skills kit was later removed, so no kit is selected by default.
+The Matt Pocock skills kit was later removed, so no kit is selected by default.
 
 ## Checks that passed
 
@@ -25,7 +23,7 @@ skills kit was later removed, so no kit is selected by default.
   launcher from `/` produced kit paths within the relocated checkout.
 - Every installer, including Grok, completed in a disposable ordinary Docker
   container using Docker's public shell image. That container was removed.
-- A real mountless SBX environment, `agent-sbx-check`, completed all install
+- A real mountless SBX environment, `boxen-check`, completed all install
   hooks with the full non-agent plugin preset.
 - Its 28 runtime checks passed: development tools, shell, editor configuration,
   shared skills, RTK hooks, Tailscale socket, and browser tools. Both Playwright
@@ -34,7 +32,7 @@ skills kit was later removed, so no kit is selected by default.
   `hello-world`.
 - A local HTTP server was reachable through SBX's loopback port publishing.
   The server and mapping were removed after the check.
-- `bash tests/sbx-smoke.sh agent-sbx-check` passed: a deliberate stop/start
+- `bash tests/sbx-smoke.sh boxen-check` passed: a deliberate stop/start
   preserved a file on the dedicated Tailscale volume, left exactly one
   `tailscaled` process, and passed all 28 runtime checks again.
 - Separate native Grok, Claude/RTK, and Codex environments completed provisioning
