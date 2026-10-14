@@ -1,0 +1,19 @@
+README.md
+  s_7559c90ea81f35::t_a0a78808481547 73-78,205-208
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.7.5",
+  "base_commit_sha": "10ebf9d1435654ff82d2b460e36ad7f3effd4389",
+  "prompts": {},
+  "sessions": {
+    "s_7559c90ea81f35": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "4bb6407a-7970-49c6-85dd-bff69f0bc4f6",
+        "model": "claude-opus-5-5"
+      },
+      "human_author": "<<chadfennell@users.noreply.github.com>>"
+    }
+  }
+}
