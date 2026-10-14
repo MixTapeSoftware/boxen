@@ -31,6 +31,7 @@ permissions:
     - sum.golang.org
     - storage.googleapis.com
     - api.mason-registry.dev
+    - www.skills.sh
     # The CDN for public.ecr.aws image layers, such as Supabase's. Every
     # sandbox has Docker, and sbx's Balanced preset allows the registry but
     # not these hosts, so pulls from it fail without them.
