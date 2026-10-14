@@ -70,6 +70,12 @@ binding does not provide a credential. Configure credential sources separately.
 `boxen --help` lists every option. Updates live in the container, so a
 recreate such as `sbx kit add` starts again from the image.
 
+`boxen status` opens sbx's dashboard, which `sbx tui` (or plain `sbx`) also
+opens. It shows each sandbox's status, CPU and memory, with keys to start or
+stop one (`s`), attach to its agent (Enter), open a shell (`x`) or remove it
+(`r`). Tab switches to the network panel, which logs outbound connections and
+lets you allow or block hosts. `?` lists every shortcut.
+
 ## Choosing kits
 
 In a terminal, `create` opens a selector: choose one agent and any kits. Arrow
@@ -196,6 +202,10 @@ Supabase CLI's edge runtime imports from when it starts, and Supabase's hosted
 MCP server at `mcp.supabase.com`.
 Rules last for the sandbox's lifetime, including install-time hosts such as
 `storage.googleapis.com`.
+When a tool fails to reach a host, the network panel in `sbx tui` (or
+`sbx policy log`) shows what was blocked; allow it there or with
+`sbx policy allow network HOST`. A blocked host can also surface as a DNS
+error, since sandbox DNS answers only allowed hosts.
 
 These are [v2 kits](https://docs.docker.com/ai/sandboxes/customize/kits-v2/) because
 Docker's built-in agents use v2. Do not mix them with v3 kits. To use kits directly,
