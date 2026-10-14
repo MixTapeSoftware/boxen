@@ -43,10 +43,10 @@ class Kits(unittest.TestCase):
 
     def test_guest_paths_point_at_shipped_files(self):
         # Kits refer to each other's scripts by guest path; a rename must keep them aligned.
-        shipped = {f.name for f in ROOT.glob("*/*/files/home/.local/share/agbx/*")}
-        sources = list(ROOT.glob("*/*/spec.yaml")) + list(ROOT.glob("*/*/files/home/.local/share/agbx/*"))
+        shipped = {f.name for f in ROOT.glob("*/*/files/home/.local/share/boxen/*")}
+        sources = list(ROOT.glob("*/*/spec.yaml")) + list(ROOT.glob("*/*/files/home/.local/share/boxen/*"))
         for source in sources + list(ROOT.glob("lib/*.sh")):
-            for name in re.findall(r'\.local/share/agbx/([A-Za-z0-9_-]+\.(?:sh|py|lua))', source.read_text()):
+            for name in re.findall(r'\.local/share/boxen/([A-Za-z0-9_-]+\.(?:sh|py|lua))', source.read_text()):
                 with self.subTest(source=source.name, name=name):
                     self.assertIn(name, shipped)
 
@@ -79,7 +79,7 @@ class Kits(unittest.TestCase):
         # tailscaled persists serve config; a startup reapply would clobber a
         # custom :443 mapping on every restart.
         self.assertNotIn("setup", spec("supabase-serve"))
-        self.assertEqual(spec("supabase-serve")["environment"]["variables"]["AGBX_SERVE_PRESET"], "supabase")
+        self.assertEqual(spec("supabase-serve")["environment"]["variables"]["BOXEN_SERVE_PRESET"], "supabase")
 
     def test_optional_kits_list_only_hosts_core_lacks(self):
         core = set(allowed("core"))
@@ -89,7 +89,7 @@ class Kits(unittest.TestCase):
         self.assertEqual(allowed("tailscale"), ["tailscale.com", "pkgs.tailscale.com", "*.tailscale.com", "*.tailscale.io"])
 
     def test_pinned_downloads_are_checksummed(self):
-        for script in ROOT.glob("kits/*/files/home/.local/share/agbx/*.sh"):
+        for script in ROOT.glob("kits/*/files/home/.local/share/boxen/*.sh"):
             text = script.read_text()
             with self.subTest(script=script.name):
                 self.assertNotIn("@latest", text)
@@ -100,16 +100,16 @@ class Kits(unittest.TestCase):
 
     def test_nvchad_steps_are_time_limited(self):
         # A stalled download or headless nvim must fail creation, not hang it.
-        script = (ROOT / "kits/nvchad/files/home/.local/share/agbx/nvchad.sh").read_text()
+        script = (ROOT / "kits/nvchad/files/home/.local/share/boxen/nvchad.sh").read_text()
         for line in script.replace("\\\n", " ").splitlines():
             with self.subTest(line=line):
                 self.assertNotRegex(line, r'^\s*(curl|nvim|npm|git clone) ')
 
     def test_proxy_preserved_and_managed_settings_untouched(self):
-        core = (ROOT / "kits/core/files/home/.local/share/agbx/core-root.sh").read_text()
+        core = (ROOT / "kits/core/files/home/.local/share/boxen/core-root.sh").read_text()
         self.assertNotIn("export HTTP_PROXY=", core)
         self.assertNotIn("export HTTPS_PROXY=", core)
-        rtk = (ROOT / "kits/rtkplus/files/home/.local/share/agbx/rtkplus.sh").read_text()
+        rtk = (ROOT / "kits/rtkplus/files/home/.local/share/boxen/rtkplus.sh").read_text()
         self.assertIn("claude-rtk.json", rtk)
         self.assertNotRegex(rtk, r'>.*\.claude/settings\.json')
         self.assertNotRegex(rtk, r'>.*\.codex/config\.toml')

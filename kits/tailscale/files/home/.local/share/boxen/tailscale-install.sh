@@ -15,6 +15,6 @@ printf '%s  %s\n' "$checksum" "$tmp/tailscale.tgz" | sha256sum -c --quiet -
 tar -C "$tmp" -xzf "$tmp/tailscale.tgz"
 install -m 755 "$tmp/tailscale_${version}_$arch/tailscale" /usr/local/bin/tailscale
 install -m 755 "$tmp/tailscale_${version}_$arch/tailscaled" /usr/local/bin/tailscaled
-install -m 755 /home/agent/.local/share/agbx/tailscale-control.sh /usr/local/bin/agbx-tailscale
-mkdir -p /var/lib/tailscale /var/run/tailscale /var/log/agbx
+install -m 755 /home/agent/.local/share/boxen/tailscale-control.sh /usr/local/bin/boxen-tailscale
+mkdir -p /var/lib/tailscale /var/run/tailscale /var/log/boxen
 chmod 700 /var/lib/tailscale

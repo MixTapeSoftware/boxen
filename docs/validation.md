@@ -4,8 +4,8 @@ Tested on 2026-10-12 with SBX 0.47.0, Linux amd64, and nested KVM. The host
 initially had 3.8 GiB RAM; resumed testing used 5.8 GiB, without swap. This is
 a prototype, not a completed cross-platform or authenticated integration test.
 
-The project was later renamed from agent-sbx to AgentSBX, with the `agbx`
-command. Sandbox names below are as they were at the time. The Matt Pocock
+The project was later renamed from agent-sbx to AgentSBX (`agbx`), then to
+Boxen (`boxen`). Sandbox names below are as they were at the time. The Matt Pocock
 skills kit was later removed, so no kit is selected by default.
 
 ## Checks that passed
@@ -107,7 +107,7 @@ What was checked without starting a microVM:
   workspace kit, passed Docker's pinned v2 parser.
 - In a disposable Docker container from `docker/sandbox-templates:shell-docker`,
   the sudo policy removed the agent's sudo (`sudo -n true` asks for a password)
-  while `agbx-sudo-session` gave a session `agent` with groups
+  while `boxen-sudo-session` gave a session `agent` with groups
   `agent docker _sudo` and working sudo. Docker's own
   `/etc/sudoers.d/proxyconfig` is mode 0644, so the policy validates only its
   own file with `visudo`.

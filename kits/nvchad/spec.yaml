@@ -1,6 +1,6 @@
 schemaVersion: '2'
 kind: mixin
-name: agbx-nvchad
+name: boxen-nvchad
 displayName: Chadception Neovim configuration
 description: Chadception Neovim configuration
 permissions:
@@ -17,6 +17,6 @@ permissions:
     - codeberg.org
 setup:
   install:
-  - command: bash /home/agent/.local/share/agbx/nvchad.sh
+  - command: bash /home/agent/.local/share/boxen/nvchad.sh
     user: '1000'
     description: nvchad

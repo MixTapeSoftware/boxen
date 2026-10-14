@@ -1,9 +1,9 @@
-# AgentSBX
+# Boxen
 
 Development sandboxes for coding agents on **local Docker Sandboxes**, with a
 shell by default and optional Claude, Codex, or Grok workloads. Docker owns the
 VM, network policy, credential proxy, and private Docker Engine. This project
-supplies the `agbx` launcher, development tools as kits, shell configuration, and
+supplies the `boxen` launcher, development tools as kits, shell configuration, and
 Tailscale integration.
 
 Requires SBX **0.47.0 or newer**, Docker sign-in, and a host supported by
@@ -17,21 +17,21 @@ directory and are not published to a registry.
 
 ~~~bash
 sbx login
-./install                 # Links agbx into ~/.local/bin; offers Chadmux
-agbx doctor
+./install                 # Links boxen into ~/.local/bin; offers Chadmux
+boxen doctor
 
 # Choose an agent and kits, then copy the current directory into a new sandbox.
 cd /path/to/project
-agbx create my-project
-agbx my-project      # Open a shell
+boxen create my-project
+boxen my-project     # Open a shell
 
 # Copy another directory, or start empty.
-agbx create my-project -p /path/to/project
-agbx create scratch --no-copy
+boxen create my-project -p /path/to/project
+boxen create scratch --no-copy
 
 # A native agent entrypoint with the same tools.
-agbx create codex-project --agent codex
-agbx run codex-project
+boxen create codex-project --agent codex
+boxen run codex-project
 ~~~
 
 Creation stays detached so preview servers continue after closing your terminals.
@@ -40,10 +40,10 @@ take a name check that the sandbox exists first, so a mistyped name never
 creates a sandbox; only `create` does.
 
 Each sandbox gets 4 CPUs (or fewer on a smaller host) and 4 GiB unless you pass
-`--cpus` and `--memory`, or set `AGBX_CPUS` and `AGBX_MEMORY`. Every
+`--cpus` and `--memory`, or set `BOXEN_CPUS` and `BOXEN_MEMORY`. Every
 sandbox is a microVM that holds its memory. On Linux, `create` refuses to start
 one when available memory is below its size plus 1 GiB; a concurrent test
-microVM once exhausted the validation host. `AGBX_SKIP_MEMORY_CHECK=1`
+microVM once exhausted the validation host. `BOXEN_SKIP_MEMORY_CHECK=1`
 skips the check.
 
 On first creation, SBX may ask for a network preset and approval of declared
@@ -61,13 +61,13 @@ binding does not provide a credential. Configure credential sources separately.
 | `exec NAME COMMAND [ARGS...]` | | Run a command |
 | `net NAME [-b ADDR\|-H HOST] [-l] [-r PORT] [PORT\|HOST:SANDBOX ...]` | `-n` | Publish ports on the host through `sbx ports`; `-r all` is not supported |
 | `env NAME VAR` | `-e` | Set a variable; prompts without echoing |
-| `stop NAME`, `kill-all` | `kill`, `-k`, `-ka` | Stop one sandbox, or every running agbx sandbox |
+| `stop NAME`, `kill-all` | `kill`, `-k`, `-ka` | Stop one sandbox, or every running boxen sandbox |
 | `delete NAME` | `-d` | Remove it, after sbx asks to confirm |
 | `update NAME`, `update-all`, `cron install [HOUR]\|remove\|status` | `-u`, `-ua` | `apt-get upgrade` as root, on demand or nightly |
 | `status [--once]` | | `sbx tui`, or `sbx ls` once |
 
 `auth`, `tailscale`, `check`, `validate` and `doctor` are described below, and
-`agbx --help` lists every option. Updates live in the container, so a
+`boxen --help` lists every option. Updates live in the container, so a
 recreate such as `sbx kit add` starts again from the image.
 
 ## Choosing kits
@@ -82,11 +82,11 @@ anything. No kit starts selected, and these flags pre-select some:
 runs:
 
 ~~~bash
-agbx create web --tailscale --supabase-serve --gh-token --no-tui
-agbx create small --plugins fzf-bat,just,gh-auth
-agbx create everything --plugins all
-agbx create base --plugins none
-agbx create preview --dry-run
+boxen create web --tailscale --supabase-serve --gh-token --no-tui
+boxen create small --plugins fzf-bat,just,gh-auth
+boxen create everything --plugins all
+boxen create base --plugins none
+boxen create preview --dry-run
 ~~~
 
 The core kit always supplies build libraries and the development shell, and
@@ -140,7 +140,7 @@ own default links it in read-only). Opt in per sandbox:
 
 `--dry-run` lists the host mounts a create would add. `sbx mount` can add one
 to a running sandbox later. sbx's `ssh.agentForwardingEnabled` setting lets
-SSH clients forward an SSH agent into sandboxes; agbx connects with
+SSH clients forward an SSH agent into sandboxes; boxen connects with
 `sbx exec` instead. To rule it out entirely:
 `sbx settings set ssh.agentForwardingEnabled false`.
 
@@ -149,9 +149,9 @@ credentials, agent login files, SSH private keys, or your host home directory.
 
 ## Sudo
 
-Docker's images give the agent user standing passwordless sudo. agbx
+Docker's images give the agent user standing passwordless sudo. boxen
 removes it, and fails creation if it cannot. For root, open a
-session with `./agbx shell --with-sudo NAME`: it adds a `_sudo` group to
+session with `./boxen shell --with-sudo NAME`: it adds a `_sudo` group to
 that session only. Agents are told to ask you instead of using sudo.
 
 ## Kits
@@ -211,7 +211,7 @@ files.
 
 ## Host setup and Chadmux
 
-`./install` links `agbx` into `~/.local/bin`; the launcher follows the link
+`./install` links `boxen` into `~/.local/bin`; the launcher follows the link
 back to this checkout's kits. It then offers Chadmux, Chad's opinionated tmux
 config, with TPM plugins for the Dracula theme, tmux-yank and
 vim-tmux-navigator. `./install --chadmux` installs it without asking, and
@@ -232,8 +232,8 @@ No credential comes from the host by default. Each sandbox gets its own.
 
 Claude Code and Codex sandboxes each sign in to your subscription separately,
 inside the sandbox. `create` offers the sign-in when it finishes, and so does
-entering a sandbox that is not signed in (`agbx NAME`, `agbx shell NAME`,
-`agbx run NAME`). Claude Code uses `claude auth login --claudeai`; Codex uses
+entering a sandbox that is not signed in (`boxen NAME`, `boxen shell NAME`,
+`boxen run NAME`). Claude Code uses `claude auth login --claudeai`; Codex uses
 `codex login --device-auth`, a code you enter in your browser, since its usual
 `localhost` callback cannot reach a sandbox. Answer n to skip; the offer comes
 back next time.
@@ -246,7 +246,7 @@ Do not store `anthropic` or `openai` secrets host-wide with `sbx secret set`:
 Docker's Claude and Codex workloads then use that one credential in every
 sandbox instead of the sandbox's own sign-in. `create` and `doctor` warn when
 one exists; remove it with `sbx secret rm anthropic` (or `openai`). Grok uses
-an xAI API key; `agbx env NAME XAI_API_KEY` stores one for that sandbox only.
+an xAI API key; `boxen env NAME XAI_API_KEY` stores one for that sandbox only.
 
 ### Plugin keys
 
@@ -262,17 +262,17 @@ provisioning. Leave any blank to skip it.
 Without a terminal, or after skipping, add them later:
 
 ~~~bash
-agbx auth github my-project                     # paste a fine-grained token, or pipe one in
-op read 'op://Work/GitHub/fine-grained-token' | agbx auth github my-project
-agbx auth github my-project --from-gh           # the host gh token, with every scope gh has
-agbx env my-project OP_SERVICE_ACCOUNT_TOKEN
-agbx tailscale join my-project
-agbx auth 1password my-project github 'op://Work/GitHub/token'   # host op:// reference
+boxen auth github my-project                    # paste a fine-grained token, or pipe one in
+op read 'op://Work/GitHub/fine-grained-token' | boxen auth github my-project
+boxen auth github my-project --from-gh          # the host gh token, with every scope gh has
+boxen env my-project OP_SERVICE_ACCOUNT_TOKEN
+boxen tailscale join my-project
+boxen auth 1password my-project github 'op://Work/GitHub/token'  # host op:// reference
 ~~~
 
 Sandbox-scoped sbx secrets are removed with the sandbox. `env` stores known API
 keys (such as `XAI_API_KEY`) as sandbox-scoped sbx secrets; other variables
-live in `~/.config/agbx/env.sh` inside the sandbox, where the agent can read
+live in `~/.config/boxen/env.sh` inside the sandbox, where the agent can read
 them. For other APIs, see
 [SBX custom secrets](https://docs.docker.com/ai/sandboxes/configuration/credentials/).
 
@@ -281,15 +281,15 @@ them. For other APIs, see
 Join through the browser/device flow:
 
 ~~~bash
-./agbx tailscale join my-project
-./agbx tailscale status my-project
+./boxen tailscale join my-project
+./boxen tailscale status my-project
 ~~~
 
 Or pipe a tagged auth key directly from a secret manager:
 
 ~~~bash
 op read 'op://Development/Tailscale/auth-key' |
-  ./agbx tailscale join my-project --auth-key-stdin
+  ./boxen tailscale join my-project --auth-key-stdin
 ~~~
 
 The key travels on stdin into a temporary guest file with private permissions.
@@ -302,8 +302,8 @@ needs, and no exit nodes or Funnel. The node has no operator, so the agent
 cannot change its settings; `join`, `serve` and `status` run as root.
 
 ~~~bash
-./agbx tailscale serve my-project 5173
-./agbx tailscale serve my-project supabase
+./boxen tailscale serve my-project 5173
+./boxen tailscale serve my-project supabase
 ~~~
 
 | Tailnet HTTPS port | Guest HTTP port | Service |
@@ -341,14 +341,14 @@ Direct peer UDP is not enabled by these kits; relay performance depends on the
 host network and SBX policy.
 
 ~~~bash
-./agbx exec my-project tail /var/log/agbx/tailscaled.log
+./boxen exec my-project tail /var/log/boxen/tailscaled.log
 ~~~
 
 ## RTK and editor details
 
 RTK's Codex setup writes hooks.json and instructions, leaving Docker's managed
 config.toml alone. For Claude, the derived workload passes the separate
-/home/agent/.config/agbx/claude-rtk.json file through --settings. Pass the
+/home/agent/.config/boxen/claude-rtk.json file through --settings. Pass the
 same option when launching Claude manually. Grok can use the RTK CLI explicitly;
 this project does not claim an automatic Grok hook.
 
@@ -361,8 +361,8 @@ language servers.
 ## Verify and develop
 
 ~~~bash
-./agbx validate                 # Docker's actual kit validator; requires login
-./agbx check my-project         # Tool/browser/config checks inside the guest
+./boxen validate                # Docker's actual kit validator; requires login
+./boxen check my-project        # Tool/browser/config checks inside the guest
 
 python3 -m pip install -r tests/requirements.txt
 bash tests/run.sh                    # Syntax and isolated host CLI tests

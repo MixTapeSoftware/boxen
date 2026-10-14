@@ -1,7 +1,7 @@
-# AgentSBX
+# Boxen
 
 A standalone project that provisions development sandboxes for coding agents on
-local Docker Sandboxes, through the `agbx` command.
+local Docker Sandboxes, through the `boxen` command.
 
 ## Implementation choices
 

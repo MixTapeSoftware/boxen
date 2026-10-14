@@ -10,5 +10,5 @@ nvchad	chadfennell/nvChad, Neovim, tree-sitter parsers and six Mason LSPs
 rtkplus	RTK CLI, Codex hooks and separate Claude settings
 tailscale	Userspace daemon, per-sandbox identity and state volume
 supabase-serve	Seven tailnet HTTPS routes for an app and Supabase; adds tailscale
-gh-auth	Git credential helper; token from agbx auth github
-1pass	op CLI; host op:// references through agbx auth 1password
+gh-auth	Git credential helper; token from boxen auth github
+1pass	op CLI; host op:// references through boxen auth 1password

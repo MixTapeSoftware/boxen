@@ -1,6 +1,6 @@
 #!/bin/sh
-# Installed as /usr/local/bin/agbx-sudo-session and run as root by
-# agbx shell --with-sudo. Drops to agent with the _sudo group added for
+# Installed as /usr/local/bin/boxen-sudo-session and run as root by
+# boxen shell --with-sudo. Drops to agent with the _sudo group added for
 # this session only.
 set -eu
 groups="$(id -G agent | tr ' ' ','),$(getent group _sudo | cut -d: -f3)"

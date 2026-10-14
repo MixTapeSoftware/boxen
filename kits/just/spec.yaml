@@ -1,10 +1,10 @@
 schemaVersion: '2'
 kind: mixin
-name: agbx-just
+name: boxen-just
 displayName: just task runner
 description: just task runner
 setup:
   install:
-  - command: bash /home/agent/.local/share/agbx/just.sh
+  - command: bash /home/agent/.local/share/boxen/just.sh
     user: '1000'
     description: just

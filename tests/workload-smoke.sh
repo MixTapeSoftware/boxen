@@ -22,7 +22,7 @@ if ! mkdir "$lock" 2>/dev/null; then
   mkdir "$lock"
 fi
 printf '%s\n' "$$" > "$lock/pid"
-name="agbx-smoke-$agent-$$"
+name="boxen-smoke-$agent-$$"
 fixture=""
 started=0
 cleanup() {
@@ -82,12 +82,12 @@ p = Path(sys.argv[1])
 (p / ".hidden").write_text("preserved\n")
 PY
 started=1
-"$project/agbx" create "$name" "$fixture" --agent "$agent" \
+"$project/boxen" create "$name" "$fixture" --agent "$agent" \
   --plugins rtkplus,gh-auth --cpus 2 --memory 1g
-"$project/agbx" check "$name"
+"$project/boxen" check "$name"
 "$sbx_bin" exec "$name" "$agent" --version
 # Exercise the selected workload's entrypoint, including Claude's extra settings.
-"$project/agbx" run "$name" -- --version
+"$project/boxen" run "$name" -- --version
 "$sbx_bin" exec -i "$name" python3 - <<'PY'
 from pathlib import Path
 p = Path.cwd()
@@ -113,7 +113,7 @@ if "$sbx_bin" exec "$name" sudo -n true 2>/dev/null; then
   echo 'FAIL agent has standing sudo' >&2
   exit 1
 fi
-"$project/agbx" shell --with-sudo "$name" sudo -n true
+"$project/boxen" shell --with-sudo "$name" sudo -n true
 printf 'PASS no standing sudo; --with-sudo session works\n'
 # sbx kit add recreates the container. The copied workspace, including work
 # done after the copy, must survive on its kit volume.

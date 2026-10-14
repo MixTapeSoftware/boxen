@@ -1,6 +1,6 @@
 schemaVersion: '2'
 kind: mixin
-name: agbx-1pass
+name: boxen-1pass
 displayName: 1Password CLI; credential injection configured on host
 description: 1Password CLI; credential injection configured on host
 permissions:
@@ -12,6 +12,6 @@ permissions:
     - '*.1password.ca'
 setup:
   install:
-  - command: bash /home/agent/.local/share/agbx/1pass.sh
+  - command: bash /home/agent/.local/share/boxen/1pass.sh
     user: '1000'
     description: 1pass

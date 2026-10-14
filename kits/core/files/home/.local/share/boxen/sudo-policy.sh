@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs as root. Docker's images give agent standing passwordless sudo.
-# agbx gives none: agbx shell --with-sudo adds the _sudo group to a
-# single session through agbx-sudo-session.
+# boxen gives none: boxen shell --with-sudo adds the _sudo group to a
+# single session through boxen-sudo-session.
 set -euo pipefail
 groupadd -f _sudo
 {
@@ -20,7 +20,7 @@ done
 # Check only our file: Docker's own proxyconfig is mode 0644, which a full
 # visudo -c reports as an error although sudo reads it.
 visudo -cqf /etc/sudoers.d/_sudo
-install -m 755 /home/agent/.local/share/agbx/sudo-session.sh /usr/local/bin/agbx-sudo-session
+install -m 755 /home/agent/.local/share/boxen/sudo-session.sh /usr/local/bin/boxen-sudo-session
 # Fail creation rather than leave the agent with standing root.
 if sudo -l -U agent 2>/dev/null | grep -q 'may run'; then
   echo 'agent still has sudo after removing it; inspect /etc/sudoers and /etc/sudoers.d' >&2

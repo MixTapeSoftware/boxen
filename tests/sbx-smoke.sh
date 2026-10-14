@@ -5,14 +5,14 @@ set -euo pipefail
 project="$(cd "$(dirname "$0")/.." && pwd)"
 name="$1"
 sbx_bin="${SBX_BIN:-sbx}"
-"$project/agbx" check "$name"
+"$project/boxen" check "$name"
 "$sbx_bin" exec "$name" docker info --format '{{.ServerVersion}}'
 "$sbx_bin" exec --user root "$name" bash -c \
-  'printf "%s\n" persisted > /var/lib/tailscale/.agbx-smoke'
+  'printf "%s\n" persisted > /var/lib/tailscale/.boxen-smoke'
 "$sbx_bin" stop "$name"
 "$sbx_bin" run --detached --name "$name"
 "$sbx_bin" exec --user root "$name" bash -c \
-  'test "$(cat /var/lib/tailscale/.agbx-smoke)" = persisted'
+  'test "$(cat /var/lib/tailscale/.boxen-smoke)" = persisted'
 # Startup hooks are asynchronous; allow the daemon to initialize its socket.
 for ((attempt=0; attempt<30; attempt++)); do
   if "$sbx_bin" exec --user root "$name" tailscale status --json >/dev/null 2>&1; then break; fi
@@ -20,5 +20,5 @@ for ((attempt=0; attempt<30; attempt++)); do
 done
 "$sbx_bin" exec --user root "$name" tailscale status --json >/dev/null
 "$sbx_bin" exec --user root "$name" bash -c 'test "$(pgrep -cx tailscaled)" = 1'
-"$project/agbx" check "$name"
+"$project/boxen" check "$name"
 printf 'PASS sandbox restart, Docker daemon, and Tailscale volume persistence\n'

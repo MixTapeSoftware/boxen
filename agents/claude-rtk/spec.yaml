@@ -1,6 +1,6 @@
 schemaVersion: "2"
 kind: sandbox
-name: agbx-claude-rtk
+name: boxen-claude-rtk
 displayName: Claude with RTK
 description: Docker Claude workload with an additional RTK settings file
 extends: claude
@@ -9,4 +9,4 @@ sandbox:
     - claude
     - --dangerously-skip-permissions
     - --settings
-    - /home/agent/.config/agbx/claude-rtk.json
+    - /home/agent/.config/boxen/claude-rtk.json

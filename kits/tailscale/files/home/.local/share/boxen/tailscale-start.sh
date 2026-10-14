@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
-mkdir -p /var/lib/tailscale /var/run/tailscale /var/log/agbx
+mkdir -p /var/lib/tailscale /var/run/tailscale /var/log/boxen
 chmod 700 /var/lib/tailscale
 # Prevent duplicate daemons on repeated startup dispatches. flock releases on exit.
-exec 9>/var/run/tailscale/agbx.lock
+exec 9>/var/run/tailscale/boxen.lock
 flock -n 9 || exit 0
 exec tailscaled \
   --tun=userspace-networking \
   --state=/var/lib/tailscale/tailscaled.state \
   --socket=/var/run/tailscale/tailscaled.sock \
   --socks5-server=127.0.0.1:1055 \
-  >> /var/log/agbx/tailscaled.log 2>&1
+  >> /var/log/boxen/tailscaled.log 2>&1

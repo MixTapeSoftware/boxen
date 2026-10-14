@@ -6,12 +6,12 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "kits/core/files/home/.local/share/agbx/agent-login.sh"
+SCRIPT = ROOT / "kits/core/files/home/.local/share/boxen/agent-login.sh"
 
 
 class AgentLogin(unittest.TestCase):
     def setUp(self):
-        temp = tempfile.TemporaryDirectory(prefix="agbx-login-test-")
+        temp = tempfile.TemporaryDirectory(prefix="boxen-login-test-")
         self.addCleanup(temp.cleanup)
         self.directory = Path(temp.name)
         self.log = self.directory / "calls"
@@ -23,7 +23,7 @@ class AgentLogin(unittest.TestCase):
 
     def run_script(self, agent, action, fake_exit=0):
         env = dict(os.environ, PATH=f"{self.directory}{os.pathsep}{os.environ['PATH']}",
-                   AGBX_AGENT=agent, FAKE_EXIT=str(fake_exit))
+                   BOXEN_AGENT=agent, FAKE_EXIT=str(fake_exit))
         result = subprocess.run(["bash", str(SCRIPT), action], env=env, capture_output=True, text=True, timeout=10)
         calls = self.log.read_text().splitlines() if self.log.exists() else []
         self.log.unlink(missing_ok=True)

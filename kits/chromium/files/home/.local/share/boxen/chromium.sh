@@ -19,7 +19,7 @@ case "$(uname -m)" in
 esac
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
-destination="$HOME/.local/share/agbx/chrome/$version"
+destination="$HOME/.local/share/boxen/chrome/$version"
 mkdir -p "$destination"
 for artifact in chrome chromedriver; do
   curl -fsSL "https://storage.googleapis.com/chrome-for-testing-public/$version/$platform/$artifact-$platform.zip" -o "$tmp/$artifact.zip"

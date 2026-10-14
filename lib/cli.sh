@@ -1,4 +1,4 @@
-# Sourced by agbx. Credentials are never accepted as command arguments.
+# Sourced by boxen. Credentials are never accepted as command arguments.
 # Bash 3.2: no associative arrays; guard empty arrays under set -u.
 
 # Optional kits in install order. Docker is native to every sandbox, so there
@@ -11,15 +11,15 @@ AGENTS="shell claude codex grok"
 # env variables that sbx can inject through its proxy instead of the guest.
 SERVICE_VARS="ANTHROPIC_API_KEY:anthropic OPENAI_API_KEY:openai XAI_API_KEY:xai GH_TOKEN:github GITHUB_TOKEN:github GROQ_API_KEY:groq MISTRAL_API_KEY:mistral OPENROUTER_API_KEY:openrouter GEMINI_API_KEY:google GOOGLE_API_KEY:google"
 MIN_SBX_VERSION=0.47.0
-STATE_DIR="${AGBX_STATE_DIR:-$HOME/.local/state/agbx}"
+STATE_DIR="${BOXEN_STATE_DIR:-$HOME/.local/state/boxen}"
 REGISTRY="$STATE_DIR/sandboxes"
 LOG_DIR="$STATE_DIR/logs"
-CRON_TAG="# agbx-update-all"
+CRON_TAG="# boxen-update-all"
 UPDATE_SCRIPT='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get upgrade -y'
 
-die() { printf 'agbx: %s\n' "$*" >&2; exit 1; }
+die() { printf 'boxen: %s\n' "$*" >&2; exit 1; }
 log() { printf '[+] %s\n' "$*"; }
-warn() { printf 'agbx: %s\n' "$*" >&2; }
+warn() { printf 'boxen: %s\n' "$*" >&2; }
 # Call sbx by the path need_sbx resolved. Not `command sbx`: in Bash 3.2 a
 # failing `command` inside a function exits under set -e even within ||.
 SBX_PATH=""
@@ -45,7 +45,7 @@ set_agent() {
 
 usage() {
   cat <<'EOF'
-agbx create NAME [DIRECTORY] [options]      (also: init, -i)
+boxen create NAME [DIRECTORY] [options]      (also: init, -i)
   -p, --path DIR                 Host directory to copy (default: current directory)
   --no-copy                      Start with an empty /workspace
   --mode copy|mount|clone|none   copy (default), bind mount, sbx Git clone, or empty;
@@ -65,34 +65,34 @@ agbx create NAME [DIRECTORY] [options]      (also: init, -i)
   --no-tui                       Skip the interactive selector; use flags and defaults
   --dry-run                      Print the creation plan without creating
 
-agbx NAME                                   Open zsh in the sandbox
-agbx shell [--with-sudo] NAME [COMMAND...]  (also: -s) --with-sudo grants
-                                            sudo for this session only
-agbx run NAME [-- ARGS...]                  Attach to its agent
-agbx exec NAME COMMAND [ARGS...]            Run a command
-agbx net NAME [-b ADDR|-H HOST] [-l] [-r PORT] [PORT|HOST:SANDBOX ...]
-                                            (also: -n) Publish ports on the host
-agbx env NAME VAR                           (also: -e) Set a variable; prompts silently
-agbx stop NAME                              (also: kill, -k)
-agbx kill-all                               (also: -ka) Stop all agbx sandboxes
-agbx delete NAME                            (also: -d) sbx asks to confirm
-agbx update NAME                            (also: -u) apt-get upgrade as root
-agbx update-all                             (also: -ua)
-agbx cron install [HOUR]|remove|status      Nightly update-all (default 19:00)
-agbx status [--once]                        sbx's dashboard, or its table once
-agbx ls                                     List sandboxes
-agbx check NAME                             Check installed plugins
-agbx plugins                                List the plugins and what they install
-agbx validate                               Validate all kits using the installed sbx
-agbx doctor                                 Check local prerequisites
+boxen NAME                                   Open zsh in the sandbox
+boxen shell [--with-sudo] NAME [COMMAND...]  (also: -s) --with-sudo grants
+                                             sudo for this session only
+boxen run NAME [-- ARGS...]                  Attach to its agent
+boxen exec NAME COMMAND [ARGS...]            Run a command
+boxen net NAME [-b ADDR|-H HOST] [-l] [-r PORT] [PORT|HOST:SANDBOX ...]
+                                             (also: -n) Publish ports on the host
+boxen env NAME VAR                           (also: -e) Set a variable; prompts silently
+boxen stop NAME                              (also: kill, -k)
+boxen kill-all                               (also: -ka) Stop all boxen sandboxes
+boxen delete NAME                            (also: -d) sbx asks to confirm
+boxen update NAME                            (also: -u) apt-get upgrade as root
+boxen update-all                             (also: -ua)
+boxen cron install [HOUR]|remove|status      Nightly update-all (default 19:00)
+boxen status [--once]                        sbx's dashboard, or its table once
+boxen ls                                     List sandboxes
+boxen check NAME                             Check installed plugins
+boxen plugins                                List the plugins and what they install
+boxen validate                               Validate all kits using the installed sbx
+boxen doctor                                 Check local prerequisites
 
-agbx auth github NAME [--from-gh]           Store a fine-grained token (stdin or
-                                            prompt), or source the host gh token
-agbx auth 1password NAME SERVICE OP_REFERENCE
-                                            Source a credential from host op
-agbx tailscale join NAME [--auth-key-stdin]
-agbx tailscale status NAME
-agbx tailscale serve NAME PORT|supabase     Publish HTTPS :443 or the seven preset routes
+boxen auth github NAME [--from-gh]           Store a fine-grained token (stdin or
+                                             prompt), or source the host gh token
+boxen auth 1password NAME SERVICE OP_REFERENCE
+                                             Source a credential from host op
+boxen tailscale join NAME [--auth-key-stdin]
+boxen tailscale status NAME
+boxen tailscale serve NAME PORT|supabase     Publish HTTPS :443 or the seven preset routes
 
 Commands that take NAME never create a sandbox; only create does.
 EOF
@@ -102,7 +102,7 @@ EOF
 
 sandbox_exists() {
   local names
-  names="$(sbx ls --quiet)" || die 'sbx ls failed; check agbx doctor.'
+  names="$(sbx ls --quiet)" || die 'sbx ls failed; check boxen doctor.'
   printf '%s\n' "$names" | grep -Fxq -- "$1"
 }
 # Every command that takes NAME checks first, so a typo can never reach a
@@ -111,7 +111,7 @@ need_sandbox() {
   valid_name "$1"
   need_sbx
   sandbox_exists "$1" ||
-    die "No sandbox named $1 (see agbx ls). Nothing was created; use agbx create $1."
+    die "No sandbox named $1 (see boxen ls). Nothing was created; use boxen create $1."
 }
 register() {
   mkdir -p "$STATE_DIR"
@@ -122,7 +122,7 @@ unregister() {
   grep -Fxv -- "$1" "$REGISTRY" > "$REGISTRY.tmp" || true
   mv "$REGISTRY.tmp" "$REGISTRY"
 }
-# "NAME STATUS" for each sandbox agbx created that still exists.
+# "NAME STATUS" for each sandbox boxen created that still exists.
 managed_states() {
   need_jq "$1"
   [[ -s "$REGISTRY" ]] || return 0
@@ -155,15 +155,15 @@ to_kib() {
 # Linux only. Starting a microVM the host cannot hold lets the OOM killer
 # take other processes, as happened during validation.
 memory_ok() {
-  local meminfo="${AGBX_MEMINFO:-/proc/meminfo}" need avail
-  [[ "${AGBX_SKIP_MEMORY_CHECK:-0}" != 1 && -r "$meminfo" ]] || return 0
+  local meminfo="${BOXEN_MEMINFO:-/proc/meminfo}" need avail
+  [[ "${BOXEN_SKIP_MEMORY_CHECK:-0}" != 1 && -r "$meminfo" ]] || return 0
   need="$(to_kib "$1")" || die "Invalid memory size: $1"
   avail="$(awk '/^MemAvailable:/ {print $2}' "$meminfo")"
   [[ -n "$avail" ]] || return 0
   if (( avail < need + 1048576 )); then
-    printf 'agbx: Only %s MiB of memory is available; a %s sandbox needs %s MiB plus 1024 MiB headroom.\n' \
+    printf 'boxen: Only %s MiB of memory is available; a %s sandbox needs %s MiB plus 1024 MiB headroom.\n' \
       "$((avail / 1024))" "$1" "$((need / 1024))" >&2
-    printf 'Stop another sandbox or pass a smaller --memory. AGBX_SKIP_MEMORY_CHECK=1 skips this check.\n' >&2
+    printf 'Stop another sandbox or pass a smaller --memory. BOXEN_SKIP_MEMORY_CHECK=1 skips this check.\n' >&2
     return 1
   fi
 }
@@ -265,8 +265,8 @@ copy_workspace() {
       tar --no-same-owner --warning=no-unknown-keyword -xf -
 }
 created_but() {
-  printf 'agbx: Sandbox %s was created, but %s failed.\n' "$1" "$2" >&2
-  printf 'Look inside with: agbx shell %s\n' "$1" >&2
+  printf 'boxen: Sandbox %s was created, but %s failed.\n' "$1" "$2" >&2
+  printf 'Look inside with: boxen shell %s\n' "$1" >&2
   printf 'To start over: sbx rm %s, then run create again.\n' "$1" >&2
   exit 1
 }
@@ -293,19 +293,19 @@ warn_host_wide_agent_secret() {
 offer_agent_login() {
   local status=0 answer
   [[ -t 0 && -t 1 ]] || return 0
-  sbx exec "$1" bash /home/agent/.local/share/agbx/agent-login.sh status </dev/null >/dev/null 2>&1 || status=$?
+  sbx exec "$1" bash /home/agent/.local/share/boxen/agent-login.sh status </dev/null >/dev/null 2>&1 || status=$?
   [[ "$status" == 10 ]] || return 0
   read_value answer "$1's agent is not signed in. Sign in to your subscription now? [Y/n] "
   case "$answer" in n|N|no|No|NO) return 0 ;; esac
-  sbx exec -it "$1" bash /home/agent/.local/share/agbx/agent-login.sh login ||
-    warn "Sign-in did not finish; agbx $1 offers it again."
+  sbx exec -it "$1" bash /home/agent/.local/share/boxen/agent-login.sh login ||
+    warn "Sign-in did not finish; boxen $1 offers it again."
 }
 # Reads `export VAR=value` on stdin and stores it in the sandbox, replacing any
 # earlier value. The sandbox and its agent can read it.
 write_guest_env() {
   sbx exec -i "$1" sh -c '
     umask 077
-    dir="$HOME/.config/agbx"; file="$dir/env.sh"
+    dir="$HOME/.config/boxen"; file="$dir/env.sh"
     mkdir -p "$dir"; touch "$file"
     grep -v "^export $1=" "$file" > "$file.tmp" || true
     cat >> "$file.tmp"
@@ -316,7 +316,7 @@ write_guest_env() {
 
 create() {
   local name="" directory="" agent="" requested="$DEFAULT_PLUGINS" flagged="" mode=""
-  local dry=0 ack_env=0 memory="${AGBX_MEMORY:-4g}" cpus="${AGBX_CPUS:-}"
+  local dry=0 ack_env=0 memory="${BOXEN_MEMORY:-4g}" cpus="${BOXEN_CPUS:-}"
   local copy_all=0 skips="" copy_kib=0
   # Nothing from the host is mounted unless asked: no workspace mount, no
   # shared skills store (sbx's own default is a read-only link).
@@ -404,7 +404,7 @@ create() {
       chadmux) die 'Chadmux/tmux integration is intentionally excluded.' ;;
       claude-code|codex|grok) die "Select the agent with --agent (one per sandbox), not --plugins $item." ;;
     esac
-    in_list "$item" "$PLUGINS" || die "Unknown plugin: $item (see agbx plugins)"
+    in_list "$item" "$PLUGINS" || die "Unknown plugin: $item (see boxen plugins)"
     add_plugin "$item"
   done
   # The selector shows in a terminal unless --plugins already chose the kits.
@@ -435,7 +435,7 @@ create() {
   esac
   if [[ "$skills" != off ]]; then mounts="${mounts:+$mounts; }sbx skills store ($skills)"; fi
   command=(create --name "$name" --skills "$skills" --cpus "$cpus" --memory "$memory"
-    --env "AGBX_AGENT=$agent" --env "AGBX_PLUGINS=$selected" "${kit_args[@]}")
+    --env "BOXEN_AGENT=$agent" --env "BOXEN_PLUGINS=$selected" "${kit_args[@]}")
   if [[ "$mode" == clone ]]; then command+=(--clone); fi
   command+=("$workload")
   case "$mode" in mount|clone) command+=("$directory") ;; esac
@@ -506,38 +506,38 @@ create() {
   done
   if [[ -n "$gh_token" ]]; then
     printf '%s' "$gh_token" | sbx secret set --sandbox "$name" github ||
-      warn "Storing the GitHub token failed; retry with: agbx auth github $name"
+      warn "Storing the GitHub token failed; retry with: boxen auth github $name"
   elif has_plugin gh-auth; then
-    printf 'Add a GitHub token later: agbx auth github %s\n' "$name"
+    printf 'Add a GitHub token later: boxen auth github %s\n' "$name"
   fi
   if [[ -n "$op_token" ]]; then
     printf 'export OP_SERVICE_ACCOUNT_TOKEN=%q\n' "$op_token" | write_guest_env "$name" OP_SERVICE_ACCOUNT_TOKEN ||
-      warn "Storing the 1Password token failed; retry with: agbx env $name OP_SERVICE_ACCOUNT_TOKEN"
+      warn "Storing the 1Password token failed; retry with: boxen env $name OP_SERVICE_ACCOUNT_TOKEN"
   elif has_plugin 1pass; then
-    printf 'Add a 1Password token later: agbx env %s OP_SERVICE_ACCOUNT_TOKEN\n' "$name"
+    printf 'Add a 1Password token later: boxen env %s OP_SERVICE_ACCOUNT_TOKEN\n' "$name"
   fi
   gh_token="" op_token=""
   if [[ -n "$ts_key" ]]; then
-    if printf '%s\n' "$ts_key" | sbx exec -i --user root "$name" /usr/local/bin/agbx-tailscale join "$name" --auth-key-stdin; then
+    if printf '%s\n' "$ts_key" | sbx exec -i --user root "$name" /usr/local/bin/boxen-tailscale join "$name" --auth-key-stdin; then
       if [[ -n "$ts_port" ]]; then
-        sbx exec --user root "$name" /usr/local/bin/agbx-tailscale serve "$ts_port" ||
-          warn "Serving port $ts_port failed; retry with: agbx tailscale serve $name $ts_port"
+        sbx exec --user root "$name" /usr/local/bin/boxen-tailscale serve "$ts_port" ||
+          warn "Serving port $ts_port failed; retry with: boxen tailscale serve $name $ts_port"
       fi
     else
-      warn "Joining the tailnet failed; retry with: agbx tailscale join $name"
+      warn "Joining the tailnet failed; retry with: boxen tailscale join $name"
     fi
     ts_key=""
   elif has_plugin tailscale; then
-    printf 'Join your tailnet: agbx tailscale join %s\n' "$name"
+    printf 'Join your tailnet: boxen tailscale join %s\n' "$name"
   fi
   if has_plugin tailscale; then
     printf 'Once joined, the sandbox reaches whatever your tailnet ACLs allow, outside sbx network policy.\n'
   fi
   offer_agent_login "$name"
   # Last, after sbx's own "To connect" hint, so this is what stays on screen.
-  printf '\nTo open a shell in the sandbox, run:\n  » agbx %s\n' "$name"
-  if [[ "$agent" != shell ]]; then printf 'Start the agent with: agbx run %s\n' "$name"; fi
-  printf 'Check the plugins with: agbx check %s\n' "$name"
+  printf '\nTo open a shell in the sandbox, run:\n  » boxen %s\n' "$name"
+  if [[ "$agent" != shell ]]; then printf 'Start the agent with: boxen run %s\n' "$name"; fi
+  printf 'Check the plugins with: boxen check %s\n' "$name"
 }
 
 cmd_shell() {
@@ -564,7 +564,7 @@ cmd_shell() {
   fi
   if [[ "$with_sudo" == 1 ]]; then
     # Root enters and drops to agent with the _sudo group for this session only.
-    sbx exec "${tty[@]}" --user root "$name" /usr/local/bin/agbx-sudo-session "${cmd[@]}"
+    sbx exec "${tty[@]}" --user root "$name" /usr/local/bin/boxen-sudo-session "${cmd[@]}"
   else
     sbx exec "${tty[@]}" "$name" "${cmd[@]}"
   fi
@@ -603,7 +603,7 @@ cmd_stop_all() {
     log "Stopped $name"
     stopped=1
   done <<< "$states"
-  [[ "$stopped" == 1 ]] || echo 'No running agbx sandboxes'
+  [[ "$stopped" == 1 ]] || echo 'No running boxen sandboxes'
 }
 
 cmd_delete() {
@@ -699,13 +699,13 @@ cmd_update_all() {
   local states name status failed="" logfile
   need_sbx
   states="$(managed_states update-all)"
-  if [[ -z "$states" ]]; then echo 'No agbx sandboxes found'; return; fi
+  if [[ -z "$states" ]]; then echo 'No boxen sandboxes found'; return; fi
   mkdir -p "$LOG_DIR"
   logfile="$LOG_DIR/update-$(date +%Y%m%d-%H%M%S).log"
   while read -r name status; do
     [[ -n "$name" ]] || continue
     if [[ "$status" != running ]]; then
-      if ! memory_ok "${AGBX_MEMORY:-4g}"; then failed="$failed $name"; continue; fi
+      if ! memory_ok "${BOXEN_MEMORY:-4g}"; then failed="$failed $name"; continue; fi
       log "Starting $name..."
       if ! sbx run --detached --name "$name" </dev/null >/dev/null; then failed="$failed $name"; continue; fi
     fi
@@ -727,7 +727,7 @@ cmd_update_all() {
   fi
   rm -f "$logfile"
   write_status ok
-  log 'All agbx sandboxes updated'
+  log 'All boxen sandboxes updated'
 }
 
 cmd_cron() {
@@ -738,17 +738,17 @@ cmd_cron() {
       [[ "$hour" =~ ^[0-9]+$ && "$hour" -le 23 ]] || die "Invalid hour: $hour (0-23)"
       mkdir -p "$LOG_DIR"
       # cron's PATH is minimal; keep the one that finds sbx and jq now.
-      line="0 $hour * * * PATH=$(printf '%q' "$PATH") $(printf '%q' "$PROJECT_DIR/agbx") update-all >> $(printf '%q' "$LOG_DIR/cron.log") 2>&1 $CRON_TAG"
+      line="0 $hour * * * PATH=$(printf '%q' "$PATH") $(printf '%q' "$PROJECT_DIR/boxen") update-all >> $(printf '%q' "$LOG_DIR/cron.log") 2>&1 $CRON_TAG"
       { { crontab -l 2>/dev/null || true; } | { grep -vF "$CRON_TAG" || true; }; printf '%s\n' "$line"; } | crontab -
       log "Installed cron: daily at $(printf '%02d' "$((10#$hour))"):00; logs in $LOG_DIR/cron.log"
       ;;
     remove)
       { crontab -l 2>/dev/null || true; } | { grep -vF "$CRON_TAG" || true; } | crontab -
-      log 'Removed the agbx update cron'
+      log 'Removed the boxen update cron'
       ;;
     status)
       line="$(crontab -l 2>/dev/null | grep -F "$CRON_TAG" || true)"
-      if [[ -n "$line" ]]; then echo "Active: $line"; else echo 'No agbx update cron installed'; fi
+      if [[ -n "$line" ]]; then echo "Active: $line"; else echo 'No boxen update cron installed'; fi
       ;;
     *) die 'Usage: cron install [HOUR]|remove|status' ;;
   esac
@@ -805,10 +805,10 @@ tailscale_command() {
   case "$action" in
     join)
       if [[ $# == 0 ]]; then
-        sbx exec --user root "$name" /usr/local/bin/agbx-tailscale join "$name"
+        sbx exec --user root "$name" /usr/local/bin/boxen-tailscale join "$name"
       elif [[ $# == 1 && "$1" == --auth-key-stdin ]]; then
         [[ ! -t 0 ]] || die 'Pipe an auth key on stdin; do not pass it as an argument.'
-        sbx exec -i --user root "$name" /usr/local/bin/agbx-tailscale join "$name" --auth-key-stdin
+        sbx exec -i --user root "$name" /usr/local/bin/boxen-tailscale join "$name" --auth-key-stdin
       else die 'Use: tailscale join NAME [--auth-key-stdin]'; fi
       ;;
     status)
@@ -816,7 +816,7 @@ tailscale_command() {
       sbx exec --user root "$name" tailscale status ;;
     serve)
       [[ $# == 1 ]] || die 'Use: tailscale serve NAME PORT|supabase'
-      sbx exec --user root "$name" /usr/local/bin/agbx-tailscale serve "$1" ;;
+      sbx exec --user root "$name" /usr/local/bin/boxen-tailscale serve "$1" ;;
     *) die "Unknown tailscale action: $action" ;;
   esac
 }
@@ -839,7 +839,7 @@ cmd_doctor() {
   version="$(sbx version 2>/dev/null | sed -n 's/.*version: v\{0,1\}\([0-9][0-9.]*\).*/\1/p' | head -1)"
   [[ -n "$version" ]] || die 'Could not read the sbx version'
   version_ge "$version" "$MIN_SBX_VERSION" ||
-    die "sbx $version is too old; agbx needs $MIN_SBX_VERSION or newer."
+    die "sbx $version is too old; boxen needs $MIN_SBX_VERSION or newer."
   printf 'sbx %s\n' "$version"
   if [[ "$(uname -s)" == Linux ]]; then
     [[ -r /dev/kvm && -w /dev/kvm ]] || die '/dev/kvm is not accessible; local sandboxes need KVM and kvm group membership.'
@@ -885,7 +885,7 @@ main() {
     check)
       [[ $# == 1 ]] || die 'Usage: check NAME'
       need_sandbox "$1"
-      sbx exec "$1" bash /home/agent/.local/share/agbx/check.sh ;;
+      sbx exec "$1" bash /home/agent/.local/share/boxen/check.sh ;;
     auth) auth "$@" ;;
     tailscale) tailscale_command "$@" ;;
     validate) cmd_validate ;;

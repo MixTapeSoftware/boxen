@@ -1,4 +1,4 @@
-module agbx-kit-validation
+module boxen-kit-validation
 
 go 1.26.2
 

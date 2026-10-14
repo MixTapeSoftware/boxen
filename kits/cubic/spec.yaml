@@ -1,6 +1,6 @@
 schemaVersion: '2'
 kind: mixin
-name: agbx-cubic
+name: boxen-cubic
 displayName: cubic code review CLI
 description: cubic code review CLI
 permissions:
@@ -13,6 +13,6 @@ permissions:
     - mcafvrhahbqdwfrtncql.supabase.co
 setup:
   install:
-  - command: bash /home/agent/.local/share/agbx/cubic.sh
+  - command: bash /home/agent/.local/share/boxen/cubic.sh
     user: '1000'
     description: cubic

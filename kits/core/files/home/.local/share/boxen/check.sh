@@ -7,7 +7,7 @@ check() {
   if "$@" >/dev/null 2>&1; then printf 'PASS %s\n' "$label"
   else printf 'FAIL %s\n' "$label"; failed=1; fi
 }
-selected=",${AGBX_PLUGINS:-},"
+selected=",${BOXEN_PLUGINS:-},"
 check mise mise --version
 check Node node --version
 check Go go version
@@ -27,12 +27,12 @@ if [[ "$selected" == *,chromium,* ]]; then
   check Playwright playwright --version
   check Chrome google-chrome --version
   check ChromeDriver chromedriver --version
-  check 'Browser launch' node -e 'const {chromium}=require("playwright"); (async()=>{const b=await chromium.launch();const p=await b.newPage();await p.setContent("<title>agbx</title>");if(await p.title()!=="agbx")throw Error("title");await b.close()})().catch(e=>{console.error(e);process.exit(1)})'
-  check 'ChromeDriver session' python3 "$HOME/.local/share/agbx/browser-check.py"
+  check 'Browser launch' node -e 'const {chromium}=require("playwright"); (async()=>{const b=await chromium.launch();const p=await b.newPage();await p.setContent("<title>boxen</title>");if(await p.title()!=="boxen")throw Error("title");await b.close()})().catch(e=>{console.error(e);process.exit(1)})'
+  check 'ChromeDriver session' python3 "$HOME/.local/share/boxen/browser-check.py"
 fi
 if [[ "$selected" == *,nvchad,* ]]; then
   check 'nvChad config' test -f "$HOME/.config/nvim/lua/chadrc.lua"
-  check 'nvChad plugins' nvim --headless -c "luafile $HOME/.local/share/agbx/lazy-check.lua" -c qa
+  check 'nvChad plugins' nvim --headless -c "luafile $HOME/.local/share/boxen/lazy-check.lua" -c qa
   for lsp in lua-language-server gopls pyright-langserver typescript-language-server \
     bash-language-server elixir-ls; do
     check "Mason $lsp" test -x "$HOME/.local/share/nvim/mason/bin/$lsp"
@@ -43,8 +43,8 @@ if [[ "$selected" == *,tailscale,* ]]; then
   check 'Tailscale daemon socket' test -S /var/run/tailscale/tailscaled.sock
   printf 'INFO Tailnet login and HTTPS routes require a separate authenticated check.\n'
 fi
-case "${AGBX_AGENT:-shell}" in
+case "${BOXEN_AGENT:-shell}" in
   shell) ;;
-  claude|codex|grok) check "$AGBX_AGENT" command -v "$AGBX_AGENT" ;;
+  claude|codex|grok) check "$BOXEN_AGENT" command -v "$BOXEN_AGENT" ;;
 esac
 exit "$failed"

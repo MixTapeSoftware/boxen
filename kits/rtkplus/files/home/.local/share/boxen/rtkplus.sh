@@ -6,8 +6,8 @@ curl -fsSL https://raw.githubusercontent.com/rtk-ai/rtk/v0.51.0/install.sh | RTK
 rtk init --global --codex
 # Claude's Docker-managed settings.json must remain untouched. Our derived
 # Claude workload loads this separate settings file through --settings.
-mkdir -p "$HOME/.config/agbx"
-cat > "$HOME/.config/agbx/claude-rtk.json" <<'EOF'
+mkdir -p "$HOME/.config/boxen"
+cat > "$HOME/.config/boxen/claude-rtk.json" <<'EOF'
 {
   "hooks": {
     "PreToolUse": [{

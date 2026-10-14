@@ -1,10 +1,10 @@
 schemaVersion: '2'
 kind: mixin
-name: agbx-overmind
+name: boxen-overmind
 displayName: Overmind process manager
 description: Overmind process manager
 setup:
   install:
-  - command: bash /home/agent/.local/share/agbx/overmind.sh
+  - command: bash /home/agent/.local/share/boxen/overmind.sh
     user: '1000'
     description: overmind

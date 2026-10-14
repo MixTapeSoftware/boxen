@@ -1,10 +1,10 @@
 schemaVersion: '2'
 kind: mixin
-name: agbx-supabase-serve
+name: boxen-supabase-serve
 displayName: Seven HTTPS routes for app and Supabase
 description: Seven HTTPS routes for app and Supabase
-# agbx tailscale join applies the routes once. tailscaled keeps serve
+# boxen tailscale join applies the routes once. tailscaled keeps serve
 # config in its state volume, so nothing reapplies them on start.
 environment:
   variables:
-    AGBX_SERVE_PRESET: supabase
+    BOXEN_SERVE_PRESET: supabase

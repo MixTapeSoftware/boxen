@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Each sandbox signs its coding agent in to your subscription on its own; no
-# key comes from the host. Run as the agent user by agbx.
+# key comes from the host. Run as the agent user by boxen.
 #   status  exit 0 when nothing is needed, 10 when the agent should sign in
 #   login   the agent's own sign-in, which works without a local browser
 set -uo pipefail
 if [[ -r /etc/sandbox-persistent.sh ]]; then source /etc/sandbox-persistent.sh; fi
-agent="${AGBX_AGENT:-shell}"
+agent="${BOXEN_AGENT:-shell}"
 case "${1:-}" in
   status)
     case "$agent" in
@@ -18,7 +18,7 @@ case "${1:-}" in
       claude) exec claude auth login --claudeai ;;
       # Device auth: the usual callback to localhost cannot reach a sandbox.
       codex) exec codex login --device-auth ;;
-      *) echo "agbx: the $agent workload has no subscription sign-in" >&2; exit 1 ;;
+      *) echo "boxen: the $agent workload has no subscription sign-in" >&2; exit 1 ;;
     esac ;;
   *) echo 'Usage: agent-login.sh status|login' >&2; exit 2 ;;
 esac
