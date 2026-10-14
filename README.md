@@ -13,6 +13,18 @@ launcher uses Bash 3.2 and standard Unix tools; `kill-all` and `update-all` also
 need jq. Python and Go are only needed for development tests. Kits live in this
 directory and are not published to a registry.
 
+## Why sbx
+
+Docker Sandboxes (`sbx`) runs each sandbox in its own microVM by default. A
+microVM starts quickly, like a container, but gives the agent its own kernel
+instead of sharing the host's, which makes it a stronger boundary than a
+regular container. sbx also has kits, a kind of plugin that adds tools, setup
+steps, network rules and credentials to a sandbox.
+
+Boxen is a thin wrapper around sbx. It keeps a common set of tools and
+configuration as kits in this repository, so every new sandbox starts from the
+same setup instead of being configured by hand.
+
 ## Start
 
 ~~~bash
