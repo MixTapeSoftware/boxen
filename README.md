@@ -391,4 +391,21 @@ them. The disk check requires 3 GiB free with a cached base image or 6 GiB
 without one. Logs stay under ignored local/; a lock left by a dead run is
 reclaimed.
 
+### v3 kits (in progress)
+
+`v3/` holds the move to [v3 kits](https://docs.docker.com/ai/sandboxes/customize/):
+the `boxen` mixin and Boxen's own `shell` workload. The launcher does not use
+them yet; this README covers them once it does. Two host gates check them on a
+machine with sbx and Docker:
+
+~~~bash
+bash tests/host/compose-gate.sh      # bare vs composed Claude, Codex and shell, locally
+BOXEN_CLOUD_POLICY_NOTE='your account network default' \
+  bash tests/host/cloud-compose-gate.sh   # Docker Cloud: stop, SSH forward, a real expiry
+~~~
+
+A cloud sandbox made from `v3/boxen` by hand needs `--env BOXEN_CLOUD=1`.
+Without it the install hook removes the agent's sudo, and a cloud `exec`
+cannot run as root, so the sandbox has no way back to root.
+
 See [validation notes](docs/validation.md) for what was actually exercised.

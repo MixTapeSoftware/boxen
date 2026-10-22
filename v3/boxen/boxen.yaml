@@ -40,7 +40,7 @@ capabilities:
         - command: bash /usr/local/share/boxen/sudo-policy.sh
           user: "0"
           env: [BOXEN_CLOUD]
-          description: Remove the agent's standing sudo (local sandboxes only)
+          description: Remove the agent's standing sudo (skipped when BOXEN_CLOUD=1)
         - command: sh /usr/local/share/boxen/persist-env.sh
           user: "0"
           description: Source Boxen's environment from CLAUDE_ENV_FILE
