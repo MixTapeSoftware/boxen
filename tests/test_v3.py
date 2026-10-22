@@ -294,8 +294,9 @@ esac
         self.assertFalse(any("run" in call for call in calls), calls)
 
     def test_cleanup_removes_only_what_the_gate_made(self):
-        self.extra.write_text("fresh-box\n")
-        result, calls = self.gate('claim other-box; made fresh-box cloud; check fine true')
+        # fresh-box is free at the claim and listed once the gate has made it.
+        result, calls = self.gate('claim fresh-box cloud; claim other-box; echo fresh-box >> "$FAKE_EXTRA"; '
+                                  'made fresh-box cloud; check fine true')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("--cloud rm --force fresh-box", calls)
         self.assertFalse(any("rm" in call and ("other-box" in call or "existing-box" in call) for call in calls), calls)
@@ -304,9 +305,11 @@ esac
         result, calls = self.gate('create_sandbox new-box cloud -- sh -c \'echo new-box >> "$FAKE_EXTRA"; "$SBX_BIN" --cloud run --detached --name new-box x\'; check after true')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("--cloud run --detached --name new-box x", calls); self.assertIn("--cloud rm --force new-box", calls)
-        self.log.unlink()
+        self.log.unlink(); self.extra.unlink()
         result, calls = self.gate('create_sandbox new-box -- false; check after true')
         self.assertEqual(result.returncode, 1)
+        self.assertIn("PASS claim new-box", result.stdout)          # the name was free, so the create really ran
+        self.assertIn("FAIL create new-box (exit 1)", result.stdout)
         self.assertNotIn("PASS after", result.stdout)
         self.assertFalse(any("rm" in call and "new-box" in call for call in calls), calls)
 
