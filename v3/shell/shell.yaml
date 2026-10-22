@@ -1,0 +1,13 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Shell
+description: A plain shell on the template the agent workloads share
+kind: workload
+provides: ["shell@1.0.0"]
+capabilities:
+  - type: com.docker.sandbox/sbx@1
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      filename: AGENTS.md
+      content: |
+        This is a plain shell sandbox; composed kits list their tools below.
