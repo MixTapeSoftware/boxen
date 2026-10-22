@@ -395,6 +395,13 @@ esac
                 self.assertIn('source "$(dirname "$0")/pins.sh"', text)
                 self.assertNotIn("sbx-kit-claude:", text)   # Docker's agent workloads are no longer used
 
+    def test_host_scripts_guard_array_expansions_for_bash_3_2(self):
+        # Under set -u, Bash 3.2 treats "${a[@]}" of an empty array as unbound.
+        guarded = re.compile(r'\$\{(\w+)\[@\]\+"\$\{\1\[@\]\}"\}')
+        for script in sorted((ROOT / "tests/host").glob("*.sh")):
+            with self.subTest(script=script.name):
+                self.assertEqual(re.findall(r"\$\{\w+\[@\]\}", guarded.sub("", script.read_text())), [])
+
     def test_every_gate_sources_the_library_and_parses(self):
         gates = sorted((ROOT / "tests/host").glob("*-gate.sh"))
         self.assertTrue(gates)
