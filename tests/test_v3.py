@@ -4,6 +4,7 @@ from pathlib import Path
 import json
 import os
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -14,6 +15,8 @@ V3 = ROOT / "v3"
 SYNTAX = "# syntax=docker/sandbox-kit:3"
 SCRIPTS = V3 / "boxen/scripts"
 GUEST = "/usr/local/share/boxen/"
+# sbx's built-in agents; a kit named after one is refused at create.
+BUILT_IN_AGENTS = {"claude", "codex", "cursor", "devin", "docker-agent", "gemini", "opencode", "shell"}
 BASE = "docker/sandbox-templates:shell-docker"
 OLD_EXECUTABLE = re.compile(r"\.local/share/boxen/[A-Za-z0-9_-]+\.(?:sh|py|lua)\b")
 
@@ -102,6 +105,21 @@ class Descriptors(unittest.TestCase):
                         for script in re.findall(re.escape(GUEST) + r"([A-Za-z0-9_.-]+)", command_text(hook)):
                             self.assertTrue((SCRIPTS / script).is_file(), script)
 
+    def test_no_kit_takes_a_built_in_agent_name(self):
+        # sbx refused v3/shell: "agent \"shell\" is already registered".
+        for directory in kit_dirs():
+            with self.subTest(kit=directory.name):
+                self.assertNotIn(directory.name, BUILT_IN_AGENTS)
+                for provide in descriptor(directory.name)["provides"]:
+                    self.assertNotIn(provide.split("@")[0], BUILT_IN_AGENTS)
+
+    def test_every_dockerfile_pins_the_same_base_digest(self):
+        froms = {path: re.search(r"^FROM (\S+)", path.read_text(), re.M).group(1) for path in V3.glob("*/*.dockerfile")}
+        self.assertTrue(froms)
+        for path, base in froms.items():
+            self.assertRegex(base, r"^docker/sandbox-templates:shell-docker@sha256:[0-9a-f]{64}$", path)
+        self.assertEqual(len(set(froms.values())), 1)
+
     def test_no_boxen_kit_declares_a_volume(self):
         for directory in kit_dirs():
             with self.subTest(kit=directory.name):
@@ -120,8 +138,55 @@ class Descriptors(unittest.TestCase):
                 with self.subTest(kit=directory.name):
                     self.assertRegex(dockerfile.read_text(), r"(?m)^FROM " + re.escape(BASE) + r"(@sha256:[0-9a-f]{64})?\s*$", msg=directory.name)
 
-class BoxenMixin(ScriptCase):
-    def test_boxen_mixin_keeps_the_v2_core_hosts_on_ubuntu_mirrors(self):
+class BoxenWorkload(ScriptCase):
+    def run_entry(self, agent=None, *args):
+        for tool in ("claude", "codex", "grok", "bash"):
+            self.fake(tool, f'echo "{tool} $*"')
+        env = dict(os.environ, PATH=f"{self.bin}{os.pathsep}{os.environ['PATH']}",
+                   BOXEN_ENV_FILE="/nonexistent", BOXEN_PROFILE="/nonexistent")
+        env.pop("BOXEN_AGENT", None)
+        if agent is not None:
+            env["BOXEN_AGENT"] = agent
+        # The real bash runs the script; the fake one on PATH is what it execs.
+        return subprocess.run([shutil.which("bash"), str(SCRIPTS / "boxen-entry.sh"), *args],
+                              env=env, capture_output=True, text=True, timeout=20)
+
+    def test_boxen_is_the_workload_and_owns_the_agents_md_context(self):
+        # sbx refuses a mixin that changes a file the workload also changed, and
+        # apt changes the same files in any image, so the tools image is the
+        # workload and agents come as Docker's mixins.
+        data = descriptor("boxen")
+        self.assertEqual((data["kind"], data["provides"]), ("workload", ["boxen@1.0.0"]))
+        self.assertEqual(capability("boxen", "sbx@1").get("config"), None)
+        context = capability("boxen", "agent-context@1")["config"]
+        self.assertEqual(context["filename"], "AGENTS.md")
+        self.assertIn("boxen shell --with-sudo", " ".join(context["content"].split()))
+        self.assertEqual([d.name for d in kit_dirs()], ["boxen"])
+
+    def test_image_starts_as_agent_through_boxen_entry(self):
+        text = (V3 / "boxen/boxen.dockerfile").read_text()
+        self.assertEqual(re.findall(r"(?m)^USER (\S+)", text)[-1], "agent")
+        self.assertEqual(re.findall(r"(?m)^WORKDIR (\S+)", text)[-1], "/home/agent/workspace")
+        self.assertIn('ENTRYPOINT ["bash", "/usr/local/share/boxen/boxen-entry.sh"]', text)
+        self.assertNotIn("CMD", text)
+
+    def test_entry_starts_the_agent_named_by_boxen_agent(self):
+        cases = {"claude": "claude --dangerously-skip-permissions -c",
+                 "codex": "codex --dangerously-bypass-approvals-and-sandbox -c",
+                 "grok": "grok --yolo --no-auto-update -c",
+                 "shell": "bash -l -c", None: "bash -l -c"}
+        for agent, expected in cases.items():
+            with self.subTest(agent=agent):
+                result = self.run_entry(agent, "-c")
+                self.assertEqual((result.returncode, result.stdout.strip()), (0, expected), result.stderr)
+
+    def test_entry_refuses_an_unknown_agent(self):
+        result = self.run_entry("bogus")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("bogus", result.stderr)
+
+    def test_boxen_keeps_the_v2_core_hosts_on_ubuntu_mirrors(self):
         hosts = set(allowed("boxen"))
         core = yaml.safe_load((ROOT / "kits/core/spec.yaml").read_text())["permissions"]["network"]["allow"] if (ROOT / "kits/core/spec.yaml").exists() else []
         for host in core:
@@ -133,7 +198,9 @@ class BoxenMixin(ScriptCase):
     def test_dockerfile_copies_each_script_before_its_step(self):
         text = (V3 / "boxen/boxen.dockerfile").read_text()
         self.assertIn("COPY scripts/env.sh /etc/boxen/env.sh", text)
-        self.assertTrue(text.rstrip().endswith("COPY scripts/ /usr/local/share/boxen/"), text[-200:])
+        # The scripts change most often, so theirs is the last COPY and RUN-free tail.
+        self.assertEqual(re.findall(r"(?m)^COPY .*", text)[-1], "COPY scripts/ /usr/local/share/boxen/")
+        self.assertNotIn("RUN", text[text.index("COPY scripts/ /usr/local/share/boxen/"):])
         self.assertLess(text.index("COPY scripts/core-root.sh"), text.index("RUN bash " + GUEST + "core-root.sh"))
         self.assertLess(text.index("RUN bash " + GUEST + "core-user.sh"), text.index("COPY scripts/ /usr/local/share/boxen/"))
 
@@ -209,22 +276,6 @@ class BoxenMixin(ScriptCase):
         text = (SCRIPTS / "check.sh").read_text()
         self.assertIn(GUEST + "browser-check.py", text)
         self.assertIn(GUEST + "lazy-check.lua", text)
-
-class ShellWorkload(unittest.TestCase):
-    def test_shell_is_a_plain_workload_on_the_template(self):
-        data = descriptor("shell")
-        self.assertEqual((data["kind"], data["provides"]), ("workload", ["shell@1.0.0"]))
-        self.assertEqual(capability("shell", "sbx@1").get("config"), None)
-        text = (V3 / "shell/shell.dockerfile").read_text()
-        self.assertIn('ENTRYPOINT ["bash"]', text)
-        self.assertIn('CMD ["-l"]', text)
-
-    def test_every_dockerfile_pins_the_same_base_digest(self):
-        froms = {path: re.search(r"^FROM (\S+)", path.read_text(), re.M).group(1) for path in V3.glob("*/*.dockerfile")}
-        self.assertGreaterEqual(len(froms), 2)   # boxen and shell here; Task 4 adds grok and tightens this to exactly 3
-        for path, base in froms.items():
-            self.assertRegex(base, r"^docker/sandbox-templates:shell-docker@sha256:[0-9a-f]{64}$", path)
-        self.assertEqual(len(set(froms.values())), 1)
 
 class HostGates(unittest.TestCase):
     def setUp(self):
@@ -327,6 +378,22 @@ esac
         result, calls = self.gate('made lost-box cloud; touch "$FAKE_LS_FAIL_FLAG"; check fine true')   # listing fails at exit
         self.assertIn("NOT removing lost-box", result.stdout)
         self.assertFalse(any("rm" in call for call in calls), calls)
+
+    def test_agent_mixins_are_pinned_once_by_tag_and_digest(self):
+        out = subprocess.run(["bash", "-c", "source tests/host/pins.sh; for a in claude codex grok; do "
+                              "printf '%s %s %s\\n' \"$a\" \"$(mixin_ref $a)\" \"$(mixin_digest $a)\"; done"],
+                             cwd=ROOT, capture_output=True, text=True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        for line in out.stdout.splitlines():
+            agent, ref, digest = line.split()
+            with self.subTest(agent=agent):
+                self.assertRegex(ref, rf"^docker\.io/docker/sbx-kit-{agent}-mixin:[0-9][0-9.]*$")
+                self.assertRegex(digest, r"^sha256:[0-9a-f]{64}$")
+        for gate in ("compose-gate.sh", "cloud-compose-gate.sh"):
+            with self.subTest(gate=gate):
+                text = (ROOT / "tests/host" / gate).read_text()
+                self.assertIn('source "$(dirname "$0")/pins.sh"', text)
+                self.assertNotIn("sbx-kit-claude:", text)   # Docker's agent workloads are no longer used
 
     def test_every_gate_sources_the_library_and_parses(self):
         gates = sorted((ROOT / "tests/host").glob("*-gate.sh"))

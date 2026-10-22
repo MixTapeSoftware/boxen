@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
-# Task 1 gate (cloud): does Docker's pinned Claude workload composed with
-# v3/boxen come up in the cloud, keep Docker's sudo, survive a stop and a
-# real expiry with its files and id, and forward a port over SSH? Task 6
+# Task 1 gate (cloud): does Boxen's workload with Docker's Claude mixin come
+# up in the cloud, keep Docker's sudo, survive a stop and a real expiry with
+# its files and id, and forward a port over SSH? Task 6
 # does not start until this passes. Needs sbx (logged in, cloud plan), jq,
 # ssh, curl and GNU date; about fifteen minutes of cloud compute.
 #   BOXEN_CLOUD_POLICY_NOTE='account default: allow all' bash tests/host/cloud-compose-gate.sh
 source "$(dirname "$0")/lib.sh"
+source "$(dirname "$0")/pins.sh"
 cd "$(dirname "$0")/../.." || exit 2
 gate_begin cloud-compose-gate
 for tool in ssh curl; do command -v "$tool" >/dev/null || { say "Install $tool first"; exit 2; }; done
@@ -13,7 +14,6 @@ for tool in ssh curl; do command -v "$tool" >/dev/null || { say "Install $tool f
 date -u -d 2026-01-01T00:00:00Z +%s >/dev/null 2>&1 || { say "Needs GNU date (date -d); on macOS install coreutils and put gdate first as date"; exit 2; }
 
 NAME=v3-cloud-core
-CLAUDE=docker.io/docker/sbx-kit-claude:2.1.267
 SOCK="${TMPDIR:-/tmp}/bxg-$$.sock"
 ID=""
 cleanup() { [[ ! -S "$SOCK" ]] || ssh -S "$SOCK" -O exit "$ID@sbx_cloud" >/dev/null 2>&1; }
@@ -28,8 +28,9 @@ say "policy note: ${BOXEN_CLOUD_POLICY_NOTE:-}"
 
 say "=== 2. create, composed"
 create_sandbox "$NAME" cloud -- sbx --cloud run --detached --name "$NAME" --ttl 5m --on-timeout stop \
-  --env BOXEN_CLOUD=1 --kit ./v3/boxen "$CLAUDE"
+  --env BOXEN_CLOUD=1 --env BOXEN_AGENT=claude --kit "$(mixin_ref claude)" ./v3/boxen
 check 'cloud box keeps sudo' sbx --cloud exec "$NAME" sudo -n true
+check 'claude runs from a login shell' sbx --cloud exec "$NAME" bash -lc 'claude --version'
 if [[ -d v3/workspace ]]; then
   expect 'workspace link' linked sbx --cloud exec "$NAME" sh -c 'test -L /workspace && echo linked'
 fi

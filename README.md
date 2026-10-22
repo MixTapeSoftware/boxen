@@ -394,17 +394,27 @@ reclaimed.
 ### v3 kits (in progress)
 
 `v3/` holds the move to [v3 kits](https://docs.docker.com/ai/sandboxes/customize/):
-the `boxen` mixin and Boxen's own `shell` workload. The launcher does not use
+`v3/boxen` is a workload with every tool baked in, and each agent comes as
+Docker's agent mixin (`docker/sbx-kit-claude-mixin` and the Codex and Grok
+ones, pinned in `tests/host/pins.sh`). `BOXEN_AGENT` picks what the box
+starts: claude, codex, grok, or a shell when unset. The launcher does not use
 them yet; this README covers them once it does. Two host gates check them on a
 machine with sbx and Docker:
 
 ~~~bash
-bash tests/host/compose-gate.sh      # bare vs composed Claude, Codex and shell, locally
+bash tests/host/compose-gate.sh      # the workload alone and with each agent mixin, locally
 BOXEN_CLOUD_POLICY_NOTE='your account network default' \
   bash tests/host/cloud-compose-gate.sh   # Docker Cloud: stop, SSH forward, a real expiry
 ~~~
 
-A cloud sandbox made from `v3/boxen` by hand needs `--env BOXEN_CLOUD=1`.
+A sandbox made by hand looks like this:
+
+~~~bash
+sbx create --name try-v3 --cpus 4 --memory 4g --env BOXEN_AGENT=claude \
+  --kit docker.io/docker/sbx-kit-claude-mixin:2.1.267 ./v3/boxen
+~~~
+
+A cloud sandbox made from `v3/boxen` by hand also needs `--env BOXEN_CLOUD=1`.
 Without it the install hook removes the agent's sudo, and a cloud `exec`
 cannot run as root, so the sandbox has no way back to root.
 

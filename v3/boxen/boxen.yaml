@@ -1,10 +1,11 @@
 # syntax=docker/sandbox-kit:3
 schemaVersion: "3"
 displayName: Boxen tools
-description: Build libraries, mise, Node, Go, zsh and every Boxen tool, baked in
-kind: mixin
+description: Build libraries, mise, Node, Go, zsh and every Boxen tool, baked in; agents come as Docker's mixins
+kind: workload
 provides: ["boxen@1.0.0"]
 capabilities:
+  - type: com.docker.sandbox/sbx@1
   - type: com.docker.sandbox/network-policy@2
     config:
       runtime:
@@ -51,6 +52,8 @@ capabilities:
           description: Re-add the environment line if sbx rewrote the file
   - type: com.docker.sandbox/agent-context@1
     config:
+      # The workload names the file; each agent mixin adds its own beside it.
+      filename: AGENTS.md
       content: |
         In a local Boxen sandbox sudo is not available; when a task needs root,
         ask the user to run it from a session opened with boxen shell
