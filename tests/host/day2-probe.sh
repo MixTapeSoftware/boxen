@@ -45,7 +45,11 @@ case "$phase" in
     "$sbx" --cloud run --detached --name "$name" --ttl 5m --on-timeout stop "$workload" 2>&1 | tee -a "$log"
     [[ "${PIPESTATUS[0]}" == 0 ]] || { say "FAIL create"; exit 1; }
     "$sbx" --cloud exec "$name" sh -c 'echo survived > /home/agent/probe-marker' 2>&1 | tee -a "$log"
-    r="$(row)"
+    r="$(row)" || r=""
+    if [[ -z "$r" ]] || [[ -z "$(printf '%s' "$r" | jq -r '.id // empty')" ]]; then
+      say "FAIL $name was created but is not listed with an id; nothing recorded. Check sbx --cloud ls and remove it by hand."
+      exit 1
+    fi
     printf '%s' "$r" | jq --arg started "$(now)" '{name, id, created_at, started_by_probe: $started}' > "$state"
     record 'recorded' cat "$state"
     record 'ttl' "$sbx" --cloud ttl --json "$name"
@@ -68,7 +72,11 @@ case "$phase" in
       say "gone: $name is no longer listed"
     else
       record 'row' printf '%s\n' "$r"
-      [[ "$(printf '%s' "$r" | jq -r .id)" == "$id" ]] || say "NOTE the listed id differs from the recorded one"
+      listed="$(printf '%s' "$r" | jq -r '.id // empty')"
+      if [[ "$listed" != "$id" ]]; then
+        say "FAIL the sandbox named $name is ${listed:-<no id>}, not the $id this probe created; nothing touched, nothing recorded"
+        exit 1
+      fi
       record 'ttl before resume' "$sbx" --cloud ttl --json "$name"
       marker="$("$sbx" --cloud exec "$name" cat /home/agent/probe-marker 2>>"$log")"
       if [[ "$marker" == survived ]]; then outcome=kept; say "kept: resumed after $((age / 3600)) h with the marker intact"

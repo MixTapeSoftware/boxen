@@ -22,11 +22,19 @@ mkdir -p "$(dirname "$out")"
   printf '      runtime:\n'
   printf '        allow:\n'
   for spec in "$root"/kits/*/spec.yaml "$root"/agents/*/spec.yaml; do
+    # Block lists (- host) and flow lists (allow: [a, b]) both occur; a spec
+    # with a permissions block that yields no host stops the run.
     awk -v name="$(basename "$(dirname "$spec")")" '
-      /^permissions:/ { p = 1; next }
+      /^permissions:/ { p = 1; seen = 1; next }
       p && /^[^ ]/ { p = 0 }
       p && /^ *- / { sub(/^ *- /, ""); sub(/ *#.*/, ""); hosts[++n] = $0 }
+      p && /allow: *\[/ {
+        s = $0; sub(/.*\[/, "", s); sub(/\].*/, "", s)
+        m = split(s, items, ",")
+        for (i = 1; i <= m; i++) { gsub(/^ +| +$/, "", items[i]); if (items[i] != "") hosts[++n] = items[i] }
+      }
       END {
+        if (seen && !n) { printf "%s: permissions block with no hosts I can read\n", name > "/dev/stderr"; exit 1 }
         if (n) {
           printf "          # %s\n", name
           for (i = 1; i <= n; i++) printf "          - %s\n", hosts[i]

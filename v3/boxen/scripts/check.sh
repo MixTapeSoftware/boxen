@@ -15,7 +15,11 @@ check zsh zsh --version
 check 'GitHub CLI' gh --version
 check 'Docker CLI' docker --version
 check Compose docker compose version
-check 'No standing sudo' bash -c '! sudo -n true'
+if [[ "${BOXEN_CLOUD:-0}" == 1 ]]; then
+  check "Docker's sudo (cloud sandbox)" sudo -n true
+else
+  check 'No standing sudo' bash -c '! sudo -n true'
+fi
 for pair in 'fzf-bat:fzf' 'fzf-bat:bat' 'just:just' 'glow:glow' \
   'mermaid-ascii:mermaid-ascii' 'overmind:overmind' 'rtkplus:rtk' \
   'nvchad:nvim' '1pass:op' 'tailscale:tailscale'; do
@@ -46,5 +50,6 @@ fi
 case "${BOXEN_AGENT:-shell}" in
   shell) ;;
   claude|codex|grok) check "$BOXEN_AGENT" command -v "$BOXEN_AGENT" ;;
+  *) printf 'FAIL agent %s is not one boxen knows\n' "$BOXEN_AGENT"; failed=1 ;;
 esac
 exit "$failed"

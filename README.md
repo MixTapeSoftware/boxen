@@ -233,7 +233,7 @@ No credential comes from the host by default. Each sandbox gets its own.
 Claude Code and Codex sandboxes each sign in to your subscription separately,
 inside the sandbox. `create` offers the sign-in when it finishes, and so does
 entering a sandbox that is not signed in (`boxen NAME`, `boxen shell NAME`,
-`boxen run NAME`). Claude Code uses `claude auth login --claudeai`; Codex uses
+`boxen run NAME`). Claude Code uses `claude auth login`; Codex uses
 `codex login --device-auth`, a code you enter in your browser, since its usual
 `localhost` callback cannot reach a sandbox. Answer n to skip; the offer comes
 back next time.

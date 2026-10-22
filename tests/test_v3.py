@@ -183,6 +183,28 @@ class BoxenMixin(ScriptCase):
         self.assertIn("keeping Docker's sudo", result.stdout + result.stderr)
         self.assertFalse((self.directory / "calls").exists())
 
+    def test_sudo_verify_needs_sudo_to_say_the_agent_is_not_allowed(self):
+        cases = (('echo "User agent is not allowed to run sudo on box."; exit 1', True),
+                 ('exit 1', False),                                              # sudo broken: not proof of anything
+                 ('echo "User agent may run the following commands on box:"', False))
+        for body, ok in cases:
+            with self.subTest(body=body):
+                self.fake("sudo", body)
+                result = self.run_script("sudo-policy.sh", "verify", ok=False)
+                self.assertEqual(result.returncode == 0, ok, result.stdout + result.stderr)
+                if not ok:
+                    self.assertIn("agent", result.stderr)
+
+    def test_check_keeps_cloud_sudo_and_fails_an_unknown_agent(self):
+        self.fake("sudo", "exit 0")
+        cloud = self.run_script("check.sh", env={"BOXEN_CLOUD": "1", "BOXEN_AGENT": "bogus"}, ok=False).stdout
+        self.assertIn("PASS Docker's sudo (cloud sandbox)", cloud)
+        self.assertNotIn("No standing sudo", cloud)
+        self.assertIn("FAIL agent bogus is not one boxen knows", cloud)
+        local = self.run_script("check.sh", env={"BOXEN_AGENT": "shell"}, ok=False).stdout
+        self.assertIn("FAIL No standing sudo", local)
+        self.assertNotIn("is not one boxen knows", local)
+
     def test_check_script_uses_the_new_helper_paths(self):
         text = (SCRIPTS / "check.sh").read_text()
         self.assertIn(GUEST + "browser-check.py", text)
@@ -208,13 +230,27 @@ class HostGates(unittest.TestCase):
     def setUp(self):
         self.bin = Path(tempfile.mkdtemp()); self.log = self.bin / "calls"
         fake = self.bin / "sbx"
-        fake.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$*" >> "$FAKE_LOG"\n'
-                        'case "$*" in *"ls --json"*) [[ "${FAKE_LS_EXIT:-0}" == 0 ]] || exit "$FAKE_LS_EXIT"; '
-                        'echo \'{"sandboxes":[{"name":"existing-box","id":"sbx_x","status":"running"}]}\' ;; esac\n')
+        # Lists existing-box plus every name in FAKE_EXTRA (id sbx_<name>); ls fails
+        # with FAKE_LS_EXIT, or once the file FAKE_LS_FAIL_FLAG exists.
+        fake.write_text(r"""#!/usr/bin/env bash
+printf '%s\n' "$*" >> "$FAKE_LOG"
+case "$*" in
+  *"ls --json"*)
+    [[ "${FAKE_LS_EXIT:-0}" == 0 ]] || exit "$FAKE_LS_EXIT"
+    [[ ! -e "$FAKE_LS_FAIL_FLAG" ]] || exit 7
+    rows='{"name":"existing-box","id":"sbx_x","status":"running"}'
+    if [[ -f "$FAKE_EXTRA" ]]; then
+      while read -r n; do [[ -z "$n" ]] || rows="$rows,{\"name\":\"$n\",\"id\":\"sbx_$n\",\"status\":\"running\"}"; done < "$FAKE_EXTRA"
+    fi
+    printf '{"sandboxes":[%s]}\n' "$rows" ;;
+esac
+""")
         fake.chmod(0o755)
+        self.extra = self.bin / "extra"
 
     def gate(self, body, **env):
         env = dict(os.environ, SBX_BIN=str(self.bin / "sbx"), DOCKER_BIN="true", FAKE_LOG=str(self.log),
+                   FAKE_EXTRA=str(self.bin / "extra"), FAKE_LS_FAIL_FLAG=str(self.bin / "ls-fails"),
                    BOXEN_VALIDATION_DIR=tempfile.mkdtemp(), **env)
         result = subprocess.run(["bash", "-c", "source tests/host/lib.sh; gate_begin probe-test; " + body + "; gate_end"],
                                 cwd=ROOT, capture_output=True, text=True, env=env)
@@ -258,13 +294,14 @@ class HostGates(unittest.TestCase):
         self.assertFalse(any("run" in call for call in calls), calls)
 
     def test_cleanup_removes_only_what_the_gate_made(self):
-        result, calls = self.gate('claim fresh-box cloud; claim other-box; made fresh-box cloud; check fine true')
+        self.extra.write_text("fresh-box\n")
+        result, calls = self.gate('claim other-box; made fresh-box cloud; check fine true')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("--cloud rm --force fresh-box", calls)
         self.assertFalse(any("rm" in call and ("other-box" in call or "existing-box" in call) for call in calls), calls)
 
     def test_create_sandbox_claims_creates_and_registers_for_cleanup(self):
-        result, calls = self.gate('create_sandbox new-box cloud -- "$SBX_BIN" --cloud run --detached --name new-box x; check after true')
+        result, calls = self.gate('create_sandbox new-box cloud -- sh -c \'echo new-box >> "$FAKE_EXTRA"; "$SBX_BIN" --cloud run --detached --name new-box x\'; check after true')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("--cloud run --detached --name new-box x", calls); self.assertIn("--cloud rm --force new-box", calls)
         self.log.unlink()
@@ -272,6 +309,21 @@ class HostGates(unittest.TestCase):
         self.assertEqual(result.returncode, 1)
         self.assertNotIn("PASS after", result.stdout)
         self.assertFalse(any("rm" in call and "new-box" in call for call in calls), calls)
+
+    def test_a_failed_create_that_left_a_sandbox_is_still_removed(self):
+        result, calls = self.gate('create_sandbox half-box cloud -- sh -c \'echo half-box >> "$FAKE_EXTRA"; exit 3\'; check after true')
+        self.assertEqual(result.returncode, 1)
+        self.assertNotIn("PASS after", result.stdout)
+        self.assertIn("--cloud rm --force half-box", calls)
+
+    def test_cleanup_keeps_a_cloud_sandbox_it_cannot_identify(self):
+        result, calls = self.gate('made ghost-box cloud; check fine true')          # never listed: no id recorded
+        self.assertIn("NOT removing ghost-box", result.stdout)
+        self.assertFalse(any("rm" in call for call in calls), calls)
+        self.extra.write_text("lost-box\n"); self.log.unlink()
+        result, calls = self.gate('made lost-box cloud; touch "$FAKE_LS_FAIL_FLAG"; check fine true')   # listing fails at exit
+        self.assertIn("NOT removing lost-box", result.stdout)
+        self.assertFalse(any("rm" in call for call in calls), calls)
 
     def test_every_gate_sources_the_library_and_parses(self):
         gates = sorted((ROOT / "tests/host").glob("*-gate.sh"))

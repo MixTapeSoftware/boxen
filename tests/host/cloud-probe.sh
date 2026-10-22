@@ -4,7 +4,7 @@
 #   1. Can a Claude cloud sandbox be created with --on-timeout stop, then
 #      stopped and resumed with its files intact?
 #   2. Does Docker's SSH relay allow local port forwarding?
-# Needs: sbx (logged in, cloud plan), jq, ssh, curl. Costs a few minutes of
+# Needs: Linux (ss checks the listener), sbx (logged in, cloud plan), jq, ssh, curl. Costs a few minutes of
 # cloud compute. Logs to local/validation/. Exits 1 if any check failed.
 #
 #   bash tests/host/cloud-probe.sh            # create, test, remove
@@ -67,7 +67,7 @@ cleanup() {
   say "Log: $log"
   if [[ "$failed" == 0 ]]; then say "RESULT: all checks passed"; else say "RESULT: some checks failed"; fi
 }
-for tool in jq ssh curl; do command -v "$tool" >/dev/null || { echo "Install $tool first" >&2; exit 2; }; done
+for tool in jq ssh curl ss; do command -v "$tool" >/dev/null || { echo "Install $tool first" >&2; exit 2; }; done
 # Never adopt, and so never remove, a sandbox this run did not create; a
 # listing that fails is not the same as the name being free.
 if ! listing="$("$sbx" --cloud ls --json)"; then echo "sbx --cloud ls failed; is sbx logged in?" >&2; exit 2; fi
@@ -124,5 +124,7 @@ wait_for 'sandbox stopped' 180 status_is stopped
 expect 'marker survives a resume' marker "$sbx" --cloud exec "$name" cat /home/agent/probe-marker
 wait_for 'sandbox running again' 300 status_is running
 record 'ttl after resume' "$sbx" --cloud ttl --json "$name"
+if [[ -z "$id" ]]; then say "FAIL same sandbox id after resume (no id was read at create)"; failed=1; else
 expect 'same sandbox id after resume' "$id" sh -c "$sbx --cloud ls --json | jq -r --arg n '$name' '.sandboxes[] | select(.name == \$n) | .id // .sandbox_id // empty'"
+fi
 exit "$failed"

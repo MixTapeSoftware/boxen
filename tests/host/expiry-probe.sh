@@ -21,6 +21,7 @@ mkdir -p "$dir"
 log="$dir/expiry-probe-$(date -u +%Y%m%d-%H%M%S).log"
 failed=0
 created=0
+id=""
 
 now() { date -u +%FT%TZ; }
 say() { printf '%s %s\n' "$(now)" "$*" | tee -a "$log"; }
@@ -71,7 +72,17 @@ cleanup() {
     say "  $sbx --cloud exec $name cat /home/agent/probe-marker   # does a resume still work?"
     say "  $sbx --cloud rm --force $name"
   else
-    "$sbx" --cloud rm --force "$name" >/dev/null 2>&1 || true
+    # Remove only the sandbox this run created: same name and same id.
+    current="$(row | jq -r '.id // empty' 2>/dev/null)" || current=""
+    if [[ -z "${id:-}" ]]; then
+      say "NOT removing $name: its id was never read; check sbx --cloud ls and remove it by hand"
+    elif [[ -z "$current" ]]; then
+      say "$name is not listed (already gone, or the listing failed); check sbx --cloud ls"
+    elif [[ "$current" != "$id" ]]; then
+      say "NOT removing $name: it is now $current, not the $id this run created"
+    elif ! "$sbx" --cloud rm --force "$name" >>"$log" 2>&1; then
+      say "NOTE could not remove $name; it may still bill: $sbx --cloud rm --force $name"
+    fi
   fi
   say "Log: $log"
   if [[ "$failed" == 0 ]]; then say "RESULT: all checks passed"; else say "RESULT: some checks failed"; fi

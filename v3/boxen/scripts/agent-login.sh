@@ -9,13 +9,13 @@ agent="${BOXEN_AGENT:-shell}"
 case "${1:-}" in
   status)
     case "$agent" in
-      claude) claude auth status --json >/dev/null 2>&1 || exit 10 ;;
+      claude) claude auth status >/dev/null 2>&1 || exit 10 ;;
       codex) codex login status >/dev/null 2>&1 || exit 10 ;;
     esac
     exit 0 ;;
   login)
     case "$agent" in
-      claude) exec claude auth login --claudeai ;;
+      claude) exec claude auth login ;;
       # Device auth: the usual callback to localhost cannot reach a sandbox.
       codex) exec codex login --device-auth ;;
       *) echo "boxen: the $agent workload has no subscription sign-in" >&2; exit 1 ;;

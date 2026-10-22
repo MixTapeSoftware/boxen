@@ -66,3 +66,8 @@ capabilities:
           - pkgs.tailscale.com
           - '*.tailscale.com'
           - '*.tailscale.io'
+          # grok
+          - x.ai
+          - api.x.ai
+          - auth.x.ai
+          - cli-chat-proxy.grok.com

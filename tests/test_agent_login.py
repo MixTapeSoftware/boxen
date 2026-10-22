@@ -10,6 +10,8 @@ SCRIPT = ROOT / "kits/core/files/home/.local/share/boxen/agent-login.sh"
 
 
 class AgentLogin(unittest.TestCase):
+    script = SCRIPT
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="boxen-login-test-")
         self.addCleanup(temp.cleanup)
@@ -24,22 +26,27 @@ class AgentLogin(unittest.TestCase):
     def run_script(self, agent, action, fake_exit=0):
         env = dict(os.environ, PATH=f"{self.directory}{os.pathsep}{os.environ['PATH']}",
                    BOXEN_AGENT=agent, FAKE_EXIT=str(fake_exit))
-        result = subprocess.run(["bash", str(SCRIPT), action], env=env, capture_output=True, text=True, timeout=10)
+        result = subprocess.run(["bash", str(self.script), action], env=env, capture_output=True, text=True, timeout=10)
         calls = self.log.read_text().splitlines() if self.log.exists() else []
         self.log.unlink(missing_ok=True)
         return result.returncode, calls
 
     def test_status_asks_each_agent(self):
-        self.assertEqual(self.run_script("claude", "status"), (0, ["claude auth status --json"]))
-        self.assertEqual(self.run_script("claude", "status", fake_exit=1), (10, ["claude auth status --json"]))
+        self.assertEqual(self.run_script("claude", "status"), (0, ["claude auth status"]))
+        self.assertEqual(self.run_script("claude", "status", fake_exit=1), (10, ["claude auth status"]))
         self.assertEqual(self.run_script("codex", "status", fake_exit=1), (10, ["codex login status"]))
         self.assertEqual(self.run_script("shell", "status"), (0, []))
         self.assertEqual(self.run_script("grok", "status"), (0, []))
 
     def test_login_uses_browserless_subscription_sign_in(self):
-        self.assertEqual(self.run_script("claude", "login"), (0, ["claude auth login --claudeai"]))
+        self.assertEqual(self.run_script("claude", "login"), (0, ["claude auth login"]))
         self.assertEqual(self.run_script("codex", "login"), (0, ["codex login --device-auth"]))
         self.assertEqual(self.run_script("shell", "login")[0], 1)
+
+
+class AgentLoginV3(AgentLogin):
+    """The v3 image's copy must behave the same as the v2 kit's."""
+    script = ROOT / "v3/boxen/scripts/agent-login.sh"
 
 
 if __name__ == "__main__":

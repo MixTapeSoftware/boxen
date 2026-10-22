@@ -92,13 +92,21 @@ claim() {
 # made NAME [cloud]: this gate created NAME; only these are ever removed.
 made() {
   local name="$1" backend="${2:-local}" id=""
-  if [[ "$backend" == cloud ]]; then id="$(gate_id "$name")"; fi
+  if [[ "$backend" == cloud ]]; then id="$(gate_id "$name")" || id=""; fi
   GATE_MADE+=("$backend $name ${id:--}")
   say "made $name ($backend${id:+, $id})"
 }
+# gate_id NAME: the cloud id listed for NAME (empty if not listed); fails
+# when the listing cannot be read.
 gate_id() {
-  sbx --cloud ls --json </dev/null 2>/dev/null |
-    jq -r --arg n "$1" '(.sandboxes? // .)[]? | select(.name == $n) | .id // empty' 2>/dev/null
+  local listing
+  listing="$(sbx --cloud ls --json </dev/null 2>/dev/null)" || return 1
+  printf '%s' "$listing" | jq -r --arg n "$1" '(.sandboxes? // .)[]? | select(.name == $n) | .id // empty'
+}
+# gate_listed_now NAME [cloud]: true when the backend now lists NAME.
+gate_listed_now() {
+  gate_listing "${2:-local}" </dev/null 2>/dev/null |
+    jq -e --arg n "$1" 'any((.sandboxes? // .)[]?; .name == $n)' >/dev/null 2>&1
 }
 # create_sandbox NAME [cloud] -- CMD...: the one way a gate makes a sandbox.
 create_sandbox() {
@@ -107,7 +115,12 @@ create_sandbox() {
   if [[ "${1:-}" == cloud ]]; then backend=cloud; shift; fi
   [[ "${1:-}" == -- ]] && shift
   claim "$name" "$backend"
-  must "create $name" "$@"
+  if ! check "create $name" "$@"; then
+    # The name was free a moment ago, so a sandbox there now is this
+    # attempt's partial create: record it so cleanup removes it.
+    if gate_listed_now "$name" "$backend"; then made "$name" "$backend"; fi
+    gate_abort
+  fi
   made "$name" "$backend"
 }
 
@@ -122,11 +135,16 @@ gate_cleanup() {
   for entry in "${GATE_MADE[@]+"${GATE_MADE[@]}"}"; do
     read -r backend name id <<< "$entry"
     if [[ "$backend" == cloud ]]; then
-      if [[ "$id" != - ]]; then
-        current="$(gate_id "$name")"
-        if [[ -n "$current" && "$current" != "$id" ]]; then
-          say "NOT removing $name: its id is now $current, not the $id this gate made"; continue
-        fi
+      # Remove only what is confirmed to be the sandbox this gate made.
+      if [[ "$id" == - ]]; then
+        say "NOT removing $name: its id was never read; check sbx --cloud ls and remove it by hand"; continue
+      fi
+      if ! current="$(gate_id "$name")"; then
+        say "NOT removing $name: sbx --cloud ls failed; check it and remove $id by hand"; continue
+      fi
+      if [[ -z "$current" ]]; then say "$name is already gone"; continue; fi
+      if [[ "$current" != "$id" ]]; then
+        say "NOT removing $name: its id is now $current, not the $id this gate made"; continue
       fi
       sbx --cloud rm --force "$name" </dev/null >>"$GATE_LOG" 2>&1 || say "NOTE could not remove $name; remove it with sbx --cloud rm"
     else

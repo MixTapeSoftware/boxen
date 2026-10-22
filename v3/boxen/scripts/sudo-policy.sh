@@ -4,6 +4,16 @@
 # single session through boxen-sudo-session. Runs as a root install hook at
 # create, so the image itself ships Docker's groups and sudoers untouched.
 set -euo pipefail
+# Proof means sudo itself saying agent is not allowed. A sudo that fails,
+# or prints anything else, is not proof, and creation stops.
+verify() {
+  local report
+  report="$(sudo -l -U agent 2>&1)" || true
+  if [[ "$report" == *"is not allowed to run sudo"* ]]; then return 0; fi
+  printf 'agent may still have sudo; sudo -l -U agent said:\n%s\ninspect /etc/sudoers and /etc/sudoers.d\n' "${report:-<nothing>}" >&2
+  return 1
+}
+if [[ "${1:-}" == verify ]]; then verify; exit; fi
 if [[ "${BOXEN_CLOUD:-0}" == 1 ]]; then echo "boxen: cloud sandbox, keeping Docker's sudo for the agent"; exit 0; fi
 groupadd -f _sudo
 {
@@ -24,7 +34,4 @@ done
 visudo -cqf /etc/sudoers.d/_sudo
 install -m 755 /usr/local/share/boxen/sudo-session.sh /usr/local/bin/boxen-sudo-session
 # Fail creation rather than leave the agent with standing root.
-if sudo -l -U agent 2>/dev/null | grep -q 'may run'; then
-  echo 'agent still has sudo after removing it; inspect /etc/sudoers and /etc/sudoers.d' >&2
-  exit 1
-fi
+verify

@@ -9,6 +9,8 @@ source "$(dirname "$0")/lib.sh"
 cd "$(dirname "$0")/../.." || exit 2
 gate_begin cloud-compose-gate
 for tool in ssh curl; do command -v "$tool" >/dev/null || { say "Install $tool first"; exit 2; }; done
+# The expiry wait parses timestamps with GNU date; check before spending compute.
+date -u -d 2026-01-01T00:00:00Z +%s >/dev/null 2>&1 || { say "Needs GNU date (date -d); on macOS install coreutils and put gdate first as date"; exit 2; }
 
 NAME=v3-cloud-core
 CLAUDE=docker.io/docker/sbx-kit-claude:2.1.267
@@ -34,7 +36,8 @@ fi
 
 say "=== 3. running, with the composition and hooks"
 wait_for 'running after create' 600 status_is running || gate_abort
-ID="$(row | jq -r .id)"
+ID="$(row | jq -r '.id // .sandbox_id // empty')"
+must 'sandbox id listed' test -n "$ID"
 say "sandbox id: $ID"
 record 'ttl after create' sbx --cloud ttl --json "$NAME"
 record 'staged kits, env line, Claude settings' sbx --cloud exec "$NAME" sh -c \
