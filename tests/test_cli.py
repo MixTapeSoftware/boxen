@@ -92,7 +92,8 @@ elif cmd == 'exec' and any('agent-login.sh' in a for a in args) and args[-1] == 
 elif cmd == 'exec' and env('FAKE_EXEC_STDOUT'):
     print(env('FAKE_EXEC_STDOUT'))
 elif cmd == 'version':
-    print('sbx version: v' + env('FAKE_SBX_VERSION', '0.47.0') + ' 0411f50')
+    # Real sbx output: a blank line, then two-space-indented, no colon.
+    print('\n  sbx version v' + env('FAKE_SBX_VERSION', '0.47.0') + ' 5d40fd43027b33ed1f1a39c14fb07e2503d6998f\n')
 elif cmd == 'create':
     if cloud:
         fail('cloud create does not take local kits; use run', 9)

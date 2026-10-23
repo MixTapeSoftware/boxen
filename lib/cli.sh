@@ -1330,7 +1330,7 @@ cmd_doctor() {
     *) die 'Usage: doctor [--cloud]' ;;
   esac
   need_sbx
-  version="$(sbx version 2>/dev/null | sed -n 's/.*version: v\{0,1\}\([0-9][0-9.]*\).*/\1/p' | head -1)"
+  version="$(sbx version 2>/dev/null | sed -n 's/.*version:\{0,1\} v\{0,1\}\([0-9][0-9.]*\).*/\1/p' | head -1)"
   [[ -n "$version" ]] || die 'Could not read the sbx version'
   version_ge "$version" "$MIN_SBX_VERSION" ||
     die "sbx $version is too old; boxen needs $MIN_SBX_VERSION or newer."
