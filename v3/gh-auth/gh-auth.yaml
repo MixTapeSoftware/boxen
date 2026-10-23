@@ -9,8 +9,11 @@ capabilities:
   - type: com.docker.sandbox/network-policy@2
     config:
       runtime:
-        # github.com and api.github.com are in the boxen workload's list.
+        # sbx checks each kit alone: every inject domain below must be here,
+        # even the ones the boxen workload already allows.
         allow:
+          - github.com
+          - api.github.com
           - gist.github.com
   - type: com.docker.sandbox/credential@1
     name: GitHub access

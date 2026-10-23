@@ -105,6 +105,15 @@ class Descriptors(unittest.TestCase):
                         for script in re.findall(re.escape(GUEST) + r"([A-Za-z0-9_.-]+)", command_text(hook)):
                             self.assertTrue((SCRIPTS / script).is_file(), script)
 
+    def test_credentials_inject_only_into_their_own_kits_hosts(self):
+        # sbx checks each kit alone: "inject domain \"github.com\" is not in the
+        # network policy's runtime allow list", though boxen allowed it.
+        for directory in kit_dirs():
+            for cred in capabilities(directory.name, "credential@1"):
+                for rule in cred["config"]["apiKey"].get("inject", []):
+                    with self.subTest(kit=directory.name, domain=rule["domain"]):
+                        self.assertIn(rule["domain"], allowed(directory.name))
+
     def test_no_kit_takes_a_built_in_agent_name(self):
         # sbx refused v3/shell: "agent \"shell\" is already registered".
         for directory in kit_dirs():
@@ -653,7 +662,7 @@ class Mixins(ScriptCase):
         self.assertTrue(config["apiKey"]["proxyManaged"])
         domains = {rule["domain"] for rule in config["apiKey"]["inject"]}
         self.assertEqual(domains, {"github.com", "api.github.com", "gist.github.com"})
-        self.assertTrue(domains <= set(allowed("gh-auth")) | set(allowed("boxen")))
+        self.assertTrue(domains <= set(allowed("gh-auth")))
 
     def test_1pass_declares_hosts_only(self):
         self.assertEqual(allowed("1pass"), ["cache.agilebits.com", "*.1password.com", "*.1password.eu", "*.1password.ca"])
