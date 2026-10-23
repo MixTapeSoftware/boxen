@@ -28,12 +28,10 @@ say "policy note: ${BOXEN_CLOUD_POLICY_NOTE:-}"
 
 say "=== 2. create, composed"
 create_sandbox "$NAME" cloud -- sbx --cloud run --detached --name "$NAME" --ttl 5m --on-timeout stop \
-  --env BOXEN_CLOUD=1 --env BOXEN_AGENT=claude --kit "$(mixin_ref claude)" ./v3/boxen
+  --env BOXEN_CLOUD=1 --env BOXEN_AGENT=claude --kit "$(mixin_ref claude)" --kit ./v3/workspace ./v3/boxen
 check 'cloud box keeps sudo' sbx --cloud exec "$NAME" sudo -n true
 check 'claude runs from a login shell' sbx --cloud exec "$NAME" bash -lc 'claude --version'
-if [[ -d v3/workspace ]]; then
-  expect 'workspace link' linked sbx --cloud exec "$NAME" sh -c 'test -L /workspace && echo linked'
-fi
+expect 'workspace link' linked sbx --cloud exec "$NAME" sh -c 'test -L /workspace && echo linked'
 
 say "=== 3. running, with the composition and hooks"
 wait_for 'running after create' 600 status_is running || gate_abort
