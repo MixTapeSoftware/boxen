@@ -29,6 +29,11 @@ for folder in .claude/skills .grok/skills; do
   for skill in "$root"/.agents/skills/*/; do
     [[ -d "$skill" ]] || continue
     name="$(basename "$skill")"
+    # ln would put the link inside a real folder, and the old copy would load.
+    if [[ -e "$root/$folder/$name" && ! -L "$root/$folder/$name" ]]; then
+      echo "$folder/$name is a real folder, not a link; remove it and run this again" >&2
+      exit 1
+    fi
     ln -sfn "../../.agents/skills/$name" "$root/$folder/$name"
   done
 done

@@ -1,6 +1,7 @@
 """The repository's agent skills: one copy in .agents/skills, linked for
 every agent, and the script that refreshes them from the skills repository."""
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -80,6 +81,24 @@ class SyncSkills(unittest.TestCase):
             self.assertEqual(skill_names(folder), ["botfight", "local-only", "other"])
             self.assertEqual(os.readlink(folder / "other"), "../../.agents/skills/other")
         self.assertFalse((self.repo / ".claude/skills/gone").is_symlink())
+
+    def test_sync_stops_when_an_agent_folder_holds_a_real_copy(self):
+        # ln -sfn would put the link inside the folder and the old copy would still load.
+        (self.repo / ".claude/skills/botfight").mkdir(parents=True)
+        env = dict(os.environ, BOXEN_SKILLS_REPO=str(self.upstream), BOXEN_SKILLS_ROOT=str(self.repo))
+        result = subprocess.run(["bash", str(ROOT / "scripts/sync-skills.sh")], env=env, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn(".claude/skills/botfight", result.stderr)
+        self.assertFalse((self.repo / ".claude/skills/botfight/botfight").exists())
+
+
+class SyntaxCheck(unittest.TestCase):
+    def test_run_sh_syntax_checks_every_shell_script(self):
+        text = (ROOT / "tests/run.sh").read_text()
+        searched = re.search(r"find (.+?) -name '\*\.sh'", text).group(1).split()
+        scripts = subprocess.run(["git", "-C", str(ROOT), "ls-files", "*.sh"], capture_output=True, text=True).stdout.split()
+        missed = [s for s in scripts if s.split("/")[0] not in searched]
+        self.assertEqual(missed, [])
 
 
 if __name__ == "__main__":
