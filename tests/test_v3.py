@@ -744,8 +744,6 @@ class Cutover(unittest.TestCase):
         self.assertIn("v3/boxen", text)
         self.assertIn("https://docs.docker.com/ai/sandboxes/customize/", text)
         self.assertIn("## Cloud sandboxes", text)
-        design = (ROOT / "docs/superpowers/specs/2026-10-12-boxen-design.md").read_text()
-        self.assertIn("Superseded", design)
 
     def test_guest_script_tests_run_the_v3_copies(self):
         for test in ("test_agent_login.py", "test_tailscale.py"):

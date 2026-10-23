@@ -278,10 +278,9 @@ image and kits, uploaded from this checkout, billed while it runs.
   extends one that came up short, and prints when it stops.
 - **Docker caps a cloud sandbox at 24 hours from creation**, a clock that runs
   while it is stopped too. Whether a stopped sandbox can still be resumed after
-  that is what `tests/host/day2-probe.sh` checks; its result is recorded in
-  [the validation notes](docs/validation.md). Until then, treat a cloud sandbox
-  as one copy of your work on someone else's service: work lives only in the
-  sandbox until you push it, so commit and push often.
+  that is what `tests/host/day2-probe.sh` checks. Until it passes, treat a cloud
+  sandbox as one copy of your work on someone else's service: work lives only
+  in the sandbox until you push it, so commit and push often.
 - **Workspaces are copied or empty.** `--mode mount`, `--mode clone` and
   `--skills` need this host and are refused. `--cpus` and `--memory` go to the
   cloud only when given; otherwise Docker's default applies (`BOXEN_CPUS` and
@@ -310,9 +309,8 @@ refused: share from your laptop with `tailscale serve`, or give the sandbox
 `--tailscale` for a stable private address on your tailnet.
 
 Docker Engine and Compose are in every sandbox. Whether Supabase's local stack
-(Compose with healthchecks) runs inside a cloud sandbox is recorded by the cloud
-gate in [the validation notes](docs/validation.md); until it has, run it in a
-local sandbox.
+(Compose with healthchecks) runs inside a cloud sandbox is checked by
+`tests/host/cloud-gate.sh`; until it passes, run it in a local sandbox.
 
 ## Host setup and Chadmux
 
@@ -580,5 +578,3 @@ copy, survives a stop and resume. Successful test sandboxes are removed;
 failed ones are stopped if SBX retained them. The disk check requires 3 GiB
 free once sbx has built the kit image (`sbx-kit-src`) or 12 GiB before. Logs
 stay under ignored local/; a lock left by a dead run is reclaimed.
-
-See [validation notes](docs/validation.md) for what was actually exercised.
