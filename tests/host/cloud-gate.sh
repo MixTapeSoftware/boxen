@@ -122,6 +122,8 @@ record 'compose down' ./boxen exec v3-cloud sh -c 'cd /tmp/cg && docker compose 
 say "=== 6. stop and resume"
 check 'change .hidden' ./boxen exec v3-cloud sh -c 'echo guest > /workspace/.hidden'
 id_before="$(id_of v3-cloud)"
+# Two empty ids would make the comparison after the resume pass without reading one.
+must 'sandbox id listed before the stop' test -n "$id_before"
 record 'ttl before the stop' sbx --cloud ttl --json v3-cloud
 check './boxen stop v3-cloud' ./boxen stop v3-cloud
 wait_for 'stopped' 120 status_is v3-cloud stopped

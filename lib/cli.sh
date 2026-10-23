@@ -649,12 +649,15 @@ cloud_net() {
   for host in ${removes[@]+"${removes[@]}"}; do tunnel_cancel "$name" "$host"; done
   if [[ ${#adds[@]} == 0 ]]; then
     [[ ${#removes[@]} == 0 ]] || return 0
-    # No ports: reopen the tunnel with what was recorded.
+    # No ports: reopen the tunnel with what was recorded, on a running box.
+    resume_if_stopped "$name"
     ssh_ready
     tunnel_master "$name" replay
     tunnel_list "$name"
     return
   fi
+  # A tunnel needs a running box; listing and removing never start one.
+  resume_if_stopped "$name"
   ssh_ready
   tunnel_master "$name"
   for arg in "${adds[@]}"; do
