@@ -445,10 +445,10 @@ python3 -m pip install -r tests/requirements.txt
 bash tests/run.sh                    # Syntax and isolated host CLI tests
 bash tests/validate-upstream.sh      # Docker's pinned v2 parser, no Docker login
 
-# Native workload and workspace-copy checks; run sequentially with other VMs stopped.
-bash tests/workload-smoke.sh grok
-bash tests/workload-smoke.sh claude
-bash tests/workload-smoke.sh codex
+# v3 sandbox and workspace-copy checks; run sequentially with other VMs stopped.
+bash tests/workload-smoke.sh claude rtk    # shell, claude, codex or grok; rtk or nortk
+bash tests/host/smoke-gate.sh              # every agent, with and without RTK, and Tailscale
+bash tests/host/update-gate.sh             # boxen update keeps every package
 ~~~
 
 Set TEST_BASH to a Bash 3.2 executable to exercise the host CLI with it.
@@ -465,14 +465,15 @@ The code suite includes isolated Tailscale tests using fake commands for route
 arguments, timeouts, and auth-file cleanup. Further live Tailscale smoke
 validation is skipped for this prototype at the user's request.
 
-Each workload check creates a disposable sandbox capped at 1 GiB and two CPUs.
-It refuses concurrent sandboxes and, on Linux, requires at least 3 GiB available
-memory before starting. It also checks that the agent has no standing sudo,
-that `--with-sudo` works, and that the copied workspace survives `sbx kit add`.
-Successful test sandboxes are removed; failed ones are stopped if SBX retained
-them. The disk check requires 3 GiB free with a cached base image or 6 GiB
-without one. Logs stay under ignored local/; a lock left by a dead run is
-reclaimed.
+Each workload check creates a disposable sandbox through `boxen create`,
+capped at 2 GiB and two CPUs. It refuses concurrent sandboxes and, on Linux,
+requires at least 4 GiB available memory before starting. It also checks that
+RTK is composed as chosen, that the agent has no standing sudo, that
+`--with-sudo` works, and that the copied workspace, with work done after the
+copy, survives a stop and resume. Successful test sandboxes are removed;
+failed ones are stopped if SBX retained them. The disk check requires 3 GiB
+free once sbx has built the kit image (`sbx-kit-src`) or 12 GiB before. Logs
+stay under ignored local/; a lock left by a dead run is reclaimed.
 
 ### v3 kits (in progress)
 

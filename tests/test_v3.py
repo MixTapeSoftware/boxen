@@ -559,6 +559,16 @@ esac
                 self.assertIn('source "$(dirname "$0")/../../lib/pins.sh"', text)
                 self.assertNotIn("sbx-kit-claude:", text)   # Docker's agent workloads are no longer used
 
+    def test_smoke_runs_cover_every_agent_through_the_v3_launcher(self):
+        smoke = (ROOT / "tests/workload-smoke.sh").read_text()
+        for v2 in ("kits/", "agents/", "kit add", "template ls"):
+            self.assertNotIn(v2, smoke)
+        self.assertIn("shell|claude|codex|grok", smoke)
+        self.assertIn('"$project/boxen" create', smoke)
+        gate = (ROOT / "tests/host/smoke-gate.sh").read_text()
+        self.assertIn("for agent in shell claude codex grok", gate)
+        self.assertIn("for rtk in rtk nortk", gate)
+
     def test_host_scripts_guard_array_expansions_for_bash_3_2(self):
         # Under set -u, Bash 3.2 treats "${a[@]}" of an empty array as unbound.
         guarded = re.compile(r'\$\{(\w+)\[@\]\+"\$\{\1\[@\]\}"\}')
