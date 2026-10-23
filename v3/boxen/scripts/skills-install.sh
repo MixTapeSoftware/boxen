@@ -4,12 +4,13 @@
 # outside ~/.claude so no agent mixin's files are touched: Claude Code's
 # system-wide folder, and ~/.agents/skills, which Codex and Grok both read.
 set -euo pipefail
-sources="${BOXEN_SKILLS_SRC:-/usr/local/share/boxen/skills /usr/local/share/boxen/gh-stack/skills}"
+# Skill roots are separated by colons, like PATH.
+IFS=: read -r -a sources <<< "${BOXEN_SKILLS_SRC:-/usr/local/share/boxen/skills:/usr/local/share/boxen/gh-stack/skills}"
 home="${BOXEN_AGENT_HOME:-/home/agent}"
 owner="${BOXEN_AGENT_OWNER:-1000:1000}"
 claude="${BOXEN_CLAUDE_SKILLS:-/etc/claude-code/.claude/skills}"
 mkdir -p "$claude" "$home/.agents/skills"
-for source in $sources; do
+for source in "${sources[@]}"; do
   for skill in "$source"/*/; do
     skill="${skill%/}"
     [[ -f "$skill/SKILL.md" ]] || continue
