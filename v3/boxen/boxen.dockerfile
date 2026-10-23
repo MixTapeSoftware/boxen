@@ -38,8 +38,8 @@ COPY --chown=root:root scripts/chromium.sh /usr/local/share/boxen/chromium.sh
 RUN bash /usr/local/share/boxen/chromium.sh
 COPY --chown=root:root scripts/nvchad.sh scripts/lazy-check.lua /usr/local/share/boxen/
 RUN bash /usr/local/share/boxen/nvchad.sh
-# Botfight from the skills repository's main branch. The build checks main
-# each time, and a new commit there rebuilds only from here on.
+# Every skill on the skills repository's main branch, such as botfight. The
+# build checks main each time, and a new commit there rebuilds only from here on.
 USER root
 ADD https://github.com/MixTapeSoftware/skills.git#main /usr/local/share/boxen/skills
 COPY scripts/skills-install.sh /usr/local/share/boxen/skills-install.sh

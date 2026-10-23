@@ -304,26 +304,33 @@ class BakedTools(ScriptCase):
         self.assertLess(add, text.index("RUN bash " + GUEST + "skills-install.sh"))
         self.assertEqual(text[:add].rsplit("USER ", 1)[1].split("\n")[0], "root")
 
-    def test_skills_install_links_botfight_where_claude_and_codex_read_system_skills(self):
+    def test_skills_install_links_every_skill_where_each_agent_reads_it(self):
         source = Path(tempfile.mkdtemp(dir=self.directory))
-        (source / "botfight").mkdir()
-        (source / "botfight/SKILL.md").write_text("---\nname: botfight\n---\n")
-        claude, codex = self.directory / "etc/claude-code/.claude/skills", self.directory / "etc/codex/skills"
-        env = dict(os.environ, BOXEN_SKILLS_SRC=str(source), BOXEN_CLAUDE_SKILLS=str(claude), BOXEN_CODEX_SKILLS=str(codex))
+        for name in ("botfight", "other"):
+            (source / name).mkdir()
+            (source / name / "SKILL.md").write_text(f"---\nname: {name}\n---\n")
+        (source / "README.md").write_text("not a skill\n")
+        claude, shared = self.directory / "etc/claude-code/.claude/skills", self.directory / "home/.agents/skills"
+        env = dict(os.environ, BOXEN_SKILLS_SRC=str(source), BOXEN_CLAUDE_SKILLS=str(claude),
+                   BOXEN_AGENT_HOME=str(self.directory / "home"), BOXEN_AGENT_OWNER=f"{os.getuid()}:{os.getgid()}")
         for _ in range(2):
             result = subprocess.run(["bash", str(SCRIPTS / "skills-install.sh")], env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
-        for target in (claude, codex):
+        for target in (claude, shared):
+            self.assertEqual(sorted(p.name for p in target.iterdir()), ["botfight", "other"], target)
             self.assertTrue((target / "botfight/SKILL.md").is_file(), target)
             self.assertEqual(sorted(p.name for p in (target / "botfight").iterdir()), ["SKILL.md"])
         script = (SCRIPTS / "skills-install.sh").read_text()
+        # Claude Code's system-wide folder, and the one Codex and Grok both read.
         self.assertIn("/etc/claude-code/.claude/skills", script)
-        self.assertIn("/etc/codex/skills", script)
+        self.assertIn('/.agents/skills', script)
+        self.assertNotIn("/etc/codex/skills", script)
 
-    def test_check_script_checks_the_botfight_skill(self):
+    def test_check_script_checks_the_botfight_skill_for_every_agent(self):
         text = (SCRIPTS / "check.sh").read_text()
         self.assertIn("/etc/claude-code/.claude/skills/botfight/SKILL.md", text)
-        self.assertIn("/etc/codex/skills/botfight/SKILL.md", text)
+        self.assertIn("$HOME/.agents/skills/botfight/SKILL.md", text)
+        self.assertNotIn("/etc/codex/skills", text)
 
     def test_pinned_downloads_are_checksummed(self):
         for script in SCRIPTS.glob("*.sh"):
