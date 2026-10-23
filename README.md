@@ -487,12 +487,19 @@ script rebuilds only the last step. Every box also has every skill from
 [MixTapeSoftware/skills](https://github.com/MixTapeSoftware/skills), such as
 botfight, for Claude Code (in `/etc/claude-code/.claude/skills/`) and for
 Codex and Grok (in `~/.agents/skills/`). They are not pinned: each build takes
-the skills repository's latest `main`. Three host gates check them on a
-machine with sbx and Docker:
+the skills repository's latest `main`.
+
+Boxen's options are mixins next to it, each a single YAML file that runs
+scripts the image already has: `v3/workspace` (the agent-owned workspace and
+the `/workspace` link), `v3/tailscale`, `v3/gh-auth` (a proxy-managed GitHub
+token and Git's credential helper), `v3/1pass` (1Password's hosts), and
+`v3/rtkplus-claude` or `v3/rtkplus-codex` (RTK's hook for that agent). Four
+host gates check all of this on a machine with sbx and Docker:
 
 ~~~bash
 bash tests/host/tools-gate.sh        # every tool baked in, build and rebuild times
 bash tests/host/compose-gate.sh      # the workload alone and with each agent mixin, locally
+bash tests/host/mixins-gate.sh       # every Boxen mixin on at once, for each agent, and a restart
 BOXEN_CLOUD_POLICY_NOTE='your account network default' \
   bash tests/host/cloud-compose-gate.sh   # Docker Cloud: stop, SSH forward, a real expiry
 ~~~
@@ -501,8 +508,11 @@ A sandbox made by hand looks like this:
 
 ~~~bash
 sbx create --name try-v3 --cpus 4 --memory 4g --env BOXEN_AGENT=claude \
-  --kit docker.io/docker/sbx-kit-claude-mixin:2.1.267 ./v3/boxen
+  --kit docker.io/docker/sbx-kit-claude-mixin:2.1.267 --kit ./v3/workspace ./v3/boxen
 ~~~
+
+Add `--kit ./v3/<mixin>` for each option you want. With `v3/tailscale`,
+`--env BOXEN_SERVE_PRESET=supabase` picks the Supabase routes.
 
 A cloud sandbox made from `v3/boxen` by hand also needs `--env BOXEN_CLOUD=1`.
 Without it the install hook removes the agent's sudo, and a cloud `exec`

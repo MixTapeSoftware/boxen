@@ -167,6 +167,21 @@ class TailscaleControlV3(TailscaleControl):
     """The v3 image's copy must behave the same as the v2 kit's."""
     control = ROOT / "v3/boxen/scripts/tailscale-control.sh"
 
+    def setUp(self):
+        super().setUp()
+        # Never read a real guest's preset when the tests run inside a sandbox.
+        self.env["BOXEN_SERVE_PRESET_FILE"] = str(self.directory / "serve-preset")
+
+    def test_preset_is_read_from_the_guest_file_when_the_environment_is_reset(self):
+        # On a cloud sandbox the helper runs under sudo -n, which drops
+        # BOXEN_SERVE_PRESET; the tailscale mixin records it at create.
+        (self.directory / "serve-preset").write_text("supabase\n")
+        result = self.run_control("serve", "8000", ok=False)
+        self.assertIn("Supabase preset", result.stderr)
+        self.assertEqual(self.calls(), [])
+        self.run_control("join", "test-node")
+        self.assertEqual(len(self.calls("serve")), 7)
+
 
 if __name__ == "__main__":
     unittest.main()

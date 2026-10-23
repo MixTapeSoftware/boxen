@@ -1,0 +1,40 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Boxen GitHub access
+description: A proxy-managed GitHub token for gh and Git
+kind: mixin
+provides: ["boxen-gh-auth@1.0.0"]
+requires: ["boxen >= 1.0.0"]
+capabilities:
+  - type: com.docker.sandbox/network-policy@2
+    config:
+      runtime:
+        # github.com and api.github.com are in the boxen workload's list.
+        allow:
+          - gist.github.com
+  - type: com.docker.sandbox/credential@1
+    name: GitHub access
+    optional: true
+    description: GitHub token for gh and Git, proxy-managed
+    config:
+      service: github
+      phase: [runtime]
+      apiKey:
+        name: GH_TOKEN
+        proxyManaged: true
+        inject:
+          - domain: api.github.com
+            header: Authorization
+            format: "Bearer %s"
+          - domain: github.com
+            header: Authorization
+            format: "Bearer %s"
+          - domain: gist.github.com
+            header: Authorization
+            format: "Bearer %s"
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: bash /usr/local/share/boxen/gh-auth.sh
+          user: "1000"
+          description: Point Git at gh's credential helper
