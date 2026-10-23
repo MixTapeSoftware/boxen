@@ -115,7 +115,7 @@ borrow() {
   case "$status" in
     running) ;;
     stopped)
-      check "start $name" sbx run --detached --name "$name" || gate_abort
+      check "start $name" sbx run -d --name "$name" || gate_abort
       GATE_BORROWED=1 ;;
     *) gate_fail "borrow $name (status ${status:-<none>}; only running or stopped is left as found)"; gate_abort ;;
   esac

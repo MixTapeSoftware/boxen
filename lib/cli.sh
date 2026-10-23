@@ -11,6 +11,8 @@ DEFAULT_PLUGINS=""
 AGENTS="shell claude codex grok"
 # env variables that sbx can inject through its proxy instead of the guest.
 SERVICE_VARS="ANTHROPIC_API_KEY:anthropic OPENAI_API_KEY:openai XAI_API_KEY:xai GH_TOKEN:github GITHUB_TOKEN:github GROQ_API_KEY:groq MISTRAL_API_KEY:mistral OPENROUTER_API_KEY:openrouter GEMINI_API_KEY:google GOOGLE_API_KEY:google"
+# sbx 0.48 renamed run --detached to --detach and prints ls --json as a bare
+# array; boxen passes run -d and reads either listing, so 0.47 still works.
 MIN_SBX_VERSION=0.47.0
 STATE_DIR="${BOXEN_STATE_DIR:-$HOME/.local/state/boxen}"
 REGISTRY="$STATE_DIR/sandboxes"
@@ -191,7 +193,7 @@ managed_states() {
     fi
     printf '%s' "$json" | jq -r --arg registry "$names" --arg backend "$backend" '
       ($registry | split("\n") | map(select(length > 0))) as $names
-      | .sandboxes[]? | select(.name as $n | $names | index($n)) | "\(.name) \(.status) \($backend)"'
+      | (.sandboxes? // .)[]? | select(.name as $n | $names | index($n)) | "\(.name) \(.status) \($backend)"'
   done
   CLOUD=0
 }
@@ -201,7 +203,7 @@ cloud_id() {
   local json id
   need_jq net
   json="$(sbx ls --json </dev/null)" || die 'sbx ls failed; check boxen doctor.'
-  id="$(printf '%s' "$json" | jq -r --arg n "$1" '.sandboxes[]? | select(.name == $n) | .id // .sandbox_id // empty')"
+  id="$(printf '%s' "$json" | jq -r --arg n "$1" '(.sandboxes? // .)[]? | select(.name == $n) | .id // .sandbox_id // empty')"
   [[ -n "$id" ]] || die "sbx did not list an id for $1."
   printf '%s\n' "$id"
 }
@@ -226,11 +228,11 @@ resume_if_stopped() {
   local json status
   [[ "$CLOUD" == 1 ]] && command -v jq >/dev/null 2>&1 || return 0
   json="$(sbx ls --json </dev/null)" || return 0
-  status="$(printf '%s' "$json" | jq -r --arg n "$1" '.sandboxes[]? | select(.name == $n) | .status')"
+  status="$(printf '%s' "$json" | jq -r --arg n "$1" '(.sandboxes? // .)[]? | select(.name == $n) | .status')"
   [[ -n "$status" && "$status" != running ]] || return 0
   # On stderr: stdout stays the command's own output, which scripts capture.
   log "Resuming $1" >&2
-  sbx run --detached --name "$1" </dev/null >/dev/null || die "Could not resume $1; see sbx --cloud ls."
+  sbx run -d --name "$1" </dev/null >/dev/null || die "Could not resume $1; see sbx --cloud ls."
 }
 
 # --- Resources ---------------------------------------------------------------
@@ -369,11 +371,7 @@ copy_workspace() {
 created_but() {
   printf 'boxen: Sandbox %s was created, but %s failed.\n' "$1" "$2" >&2
   printf 'Look inside with: boxen shell %s\n' "$1" >&2
-  if [[ "$CLOUD" == 1 ]]; then
-    printf 'To start over: boxen delete %s, then run create again.\n' "$1" >&2
-  else
-    printf 'To start over: sbx rm %s, then run create again.\n' "$1" >&2
-  fi
+  printf 'To start over: boxen delete %s, then run create again.\n' "$1" >&2
   exit 1
 }
 
@@ -827,7 +825,7 @@ create() {
   if [[ "$cloud" == 1 ]]; then
     # Cloud create refuses local kits; run composes them. Always stop, never
     # delete, at expiry.
-    command=(run --detached --name "$name" --ttl "$ttl" --on-timeout stop)
+    command=(run -d --name "$name" --ttl "$ttl" --on-timeout stop)
   else
     command=(create --name "$name" --skills "$skills")
   fi
@@ -934,7 +932,7 @@ create() {
     sbx "${command[@]}"
     register "$name"
     # Quiet: it prints only the sandbox ID.
-    sbx run --detached --name "$name" >/dev/null || created_but "$name" 'starting it'
+    sbx run -d --name "$name" >/dev/null || created_but "$name" 'starting it'
   fi
   if [[ "$mode" == copy ]]; then
     log "Copying $directory into /workspace, including .git and uncommitted files"
@@ -1181,7 +1179,7 @@ cmd_update_all() {
       # A cloud sandbox runs on Docker's hosts, not in this one's memory.
       if [[ "$CLOUD" == 0 ]] && ! memory_ok "${BOXEN_MEMORY:-4g}"; then failed="$failed $name"; continue; fi
       log "Starting $name..."
-      if ! sbx run --detached --name "$name" </dev/null >/dev/null; then failed="$failed $name"; continue; fi
+      if ! sbx run -d --name "$name" </dev/null >/dev/null; then failed="$failed $name"; continue; fi
     fi
     log "Updating $name..."
     printf '=== %s %s ===\n' "$name" "$(date)" >> "$logfile"

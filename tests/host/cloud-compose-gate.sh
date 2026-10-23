@@ -17,7 +17,7 @@ NAME=v3-cloud-core
 SOCK="${TMPDIR:-/tmp}/bxg-$$.sock"
 ID=""
 cleanup() { [[ ! -S "$SOCK" ]] || ssh -S "$SOCK" -O exit "$ID@sbx_cloud" >/dev/null 2>&1; }
-row() { sbx --cloud ls --json | jq -c --arg n "$NAME" '.sandboxes[] | select(.name == $n)'; }
+row() { sbx --cloud ls --json | jq -c --arg n "$NAME" '(.sandboxes? // .)[] | select(.name == $n)'; }
 status_is() { [[ "$(row | jq -r .status)" == "$1" ]]; }
 expires_at() { sbx --cloud ttl --json "$NAME" | jq -r '.expires_at // empty'; }
 epoch() { date -u -d "$1" +%s; }
@@ -27,7 +27,7 @@ must 'BOXEN_CLOUD_POLICY_NOTE describes the account network policy' test -n "${B
 say "policy note: ${BOXEN_CLOUD_POLICY_NOTE:-}"
 
 say "=== 2. create, composed"
-create_sandbox "$NAME" cloud -- sbx --cloud run --detached --name "$NAME" --ttl 5m --on-timeout stop \
+create_sandbox "$NAME" cloud -- sbx --cloud run -d --name "$NAME" --ttl 5m --on-timeout stop \
   --env BOXEN_CLOUD=1 --env BOXEN_AGENT=claude --kit "$(mixin_ref claude)" --kit ./v3/workspace ./v3/boxen
 check 'cloud box keeps sudo' sbx --cloud exec "$NAME" sudo -n true
 check 'claude runs from a login shell' sbx --cloud exec "$NAME" bash -lc 'claude --version'
@@ -95,6 +95,6 @@ case "$outcome" in
 esac
 expect 'marker after the expiry and a resume' marker sbx --cloud exec "$NAME" cat /home/agent/marker
 wait_for 'running after the second resume' 300 status_is running
-expect 'same sandbox id' "$ID" sh -c '"$0" --cloud ls --json | jq -r --arg n "$1" ".sandboxes[] | select(.name == \$n) | .id"' "$SBX" "$NAME"
+expect 'same sandbox id' "$ID" sh -c '"$0" --cloud ls --json | jq -r --arg n "$1" "(.sandboxes? // .)[] | select(.name == \$n) | .id"' "$SBX" "$NAME"
 record 'ttl after the second resume' sbx --cloud ttl --json "$NAME"
 gate_end

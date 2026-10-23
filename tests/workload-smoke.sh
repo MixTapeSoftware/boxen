@@ -136,7 +136,7 @@ printf 'PASS no standing sudo; --with-sudo session works\n'
 "$sbx_bin" exec "$name" sh -c 'cd /home/agent/workspace && echo uncommitted > after-copy &&
   head -c 1048576 /dev/urandom > random && sha256sum after-copy random bytes' > "$logs/$agent-$rtk-digests.txt"
 "$sbx_bin" stop "$name"
-"$sbx_bin" run --detached --name "$name" >/dev/null
+"$sbx_bin" run -d --name "$name" >/dev/null
 for ((attempt = 0; attempt < 60; attempt++)); do
   if "$sbx_bin" exec "$name" true 2>/dev/null; then break; fi
   sleep 1

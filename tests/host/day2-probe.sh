@@ -31,7 +31,7 @@ record() { local label="$1"; shift; say "--- $label"; "$@" 2>&1 | tee -a "$log";
 row() {
   local out
   out="$("$sbx" --cloud ls --json)" || return 1
-  printf '%s' "$out" | jq -c --arg n "$name" '.sandboxes[] | select(.name == $n)'
+  printf '%s' "$out" | jq -c --arg n "$name" '(.sandboxes? // .)[] | select(.name == $n)'
 }
 command -v jq >/dev/null || { echo "Install jq first" >&2; exit 2; }
 
@@ -42,7 +42,7 @@ case "$phase" in
     [[ -z "$existing" ]] || { echo "A cloud sandbox named $name already exists; remove it or set BOXEN_PROBE_NAME" >&2; exit 2; }
     record 'sbx version' "$sbx" version
     say "create $name from $workload with --ttl 5m --on-timeout stop"
-    "$sbx" --cloud run --detached --name "$name" --ttl 5m --on-timeout stop "$workload" 2>&1 | tee -a "$log"
+    "$sbx" --cloud run -d --name "$name" --ttl 5m --on-timeout stop "$workload" 2>&1 | tee -a "$log"
     [[ "${PIPESTATUS[0]}" == 0 ]] || { say "FAIL create"; exit 1; }
     "$sbx" --cloud exec "$name" sh -c 'echo survived > /home/agent/probe-marker' 2>&1 | tee -a "$log"
     r="$(row)" || r=""

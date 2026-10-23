@@ -10,7 +10,7 @@ sbx_bin="${SBX_BIN:-sbx}"
 "$sbx_bin" exec --user root "$name" bash -c \
   'printf "%s\n" persisted > /var/lib/tailscale/.boxen-smoke'
 "$sbx_bin" stop "$name"
-"$sbx_bin" run --detached --name "$name"
+"$sbx_bin" run -d --name "$name"
 "$sbx_bin" exec --user root "$name" bash -c \
   'test "$(cat /var/lib/tailscale/.boxen-smoke)" = persisted'
 # Startup hooks are asynchronous; allow the daemon to initialize its socket.

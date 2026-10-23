@@ -13,7 +13,7 @@ gate_begin expiry-gate
 date -u -d 2026-01-01T00:00:00Z +%s >/dev/null 2>&1 || { say "Needs GNU date (date -d); on macOS install coreutils and put gdate first as date"; exit 2; }
 
 NAMES=(v3-expiry v3-expiry-shell)
-row() { sbx --cloud ls --json | jq -c --arg n "$1" '.sandboxes[] | select(.name == $n)'; }
+row() { sbx --cloud ls --json | jq -c --arg n "$1" '(.sandboxes? // .)[] | select(.name == $n)'; }
 id_of() { row "$1" | jq -r '.id // .sandbox_id // empty'; }
 expires_at() { sbx --cloud ttl --json "$1" | jq -r '.expires_at // empty'; }
 epoch() { date -u -d "$1" +%s; }
