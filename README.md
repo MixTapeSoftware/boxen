@@ -473,10 +473,13 @@ in check:
 2. **Your policy limits who reaches the node, and on which ports.** In
    userspace mode, tailscaled forwards an incoming connection to the same
    port on the guest's `127.0.0.1`: not only the served routes, but Postgres,
-   the dev server and anything the agent starts listening on. Tailscale's
-   default allow-all rule exposes all of that to every device on your tailnet,
-   so replace it. A policy that grants only the served ports, and nothing
-   from the sandbox outward:
+   the dev server and anything the agent starts listening on. Add the
+   following to your policy (`./install` prints it too). It is an addition to
+   your existing rules, not a replacement for them: merge the `tagOwners` and
+   `grants` into yours. Rules are additive, so any other rule that reaches
+   `tag:boxen`, such as Tailscale's default allow-all, still applies and
+   should go. The result grants only the served ports, and nothing from the
+   sandbox outward:
 
    ~~~jsonc
    {

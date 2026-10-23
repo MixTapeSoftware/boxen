@@ -90,4 +90,23 @@ if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
   warn "$bin_dir is not in your PATH. Add to ~/.zshrc or ~/.bashrc:"
   printf '  export PATH="$HOME/.local/bin:$PATH"\n'
 fi
+echo
+log 'For --tailscale sandboxes. Add this to your tailnet policy:'
+cat <<'EOF'
+  {
+    "tagOwners": {"tag:boxen": ["autogroup:admin"]},
+    "grants": [
+      {
+        "src": ["autogroup:member"],
+        "dst": ["tag:boxen"],
+        "ip": ["tcp:443", "tcp:4410", "tcp:4431", "tcp:5432", "tcp:5433", "tcp:5434", "tcp:8443"]
+      }
+    ]
+    // No "funnel" nodeAttrs entry may target tag:boxen or "*".
+  }
+EOF
+echo 'It is an addition to your existing rules, not a replacement for them: merge the'
+echo 'tagOwners and grants into your policy. Any other rule that already reaches'
+echo 'tag:boxen, such as the default allow-all, still applies. See the README,'
+echo '"Tailscale and previews".'
 log 'Done. Next: boxen doctor'

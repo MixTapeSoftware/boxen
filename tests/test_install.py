@@ -82,6 +82,17 @@ class Install(unittest.TestCase):
         self.install()
         self.assertTrue(link.is_symlink())
 
+    def test_prints_the_tailnet_policy_to_add(self):
+        # The snippet joins the user's existing policy; it is not the whole file.
+        result = self.install("--no-chadmux")
+        self.assertIn("Add this to your tailnet policy", result.stdout)
+        self.assertIn("not a replacement", result.stdout)
+        for line in ('"tagOwners": {"tag:boxen": ["autogroup:admin"]}',
+                     '"src": ["autogroup:member"]', '"dst": ["tag:boxen"]',
+                     '"tcp:443", "tcp:4410", "tcp:4431", "tcp:5432", "tcp:5433", "tcp:5434", "tcp:8443"',
+                     "funnel"):
+            self.assertIn(line, result.stdout)
+
     def test_keeps_a_file_in_the_way(self):
         target = self.home / ".local/bin/boxen"
         target.parent.mkdir(parents=True)
