@@ -5,6 +5,9 @@ boxen_path_prepend "$HOME/.local/share/mise/shims"
 boxen_path_prepend "$HOME/.local/bin"
 export PATH
 export MISE_GIX=false
+# Trust mise config anywhere in the workspace, including repositories copied or
+# cloned there after setup, so mise never stops to ask for mise trust.
+export MISE_TRUSTED_CONFIG_PATHS=/home/agent/workspace
 export npm_config_prefix="$HOME/.local"
 case ":${NODE_PATH:-}:" in *":$HOME/.local/lib/node_modules:"*) ;; *) export NODE_PATH="$HOME/.local/lib/node_modules${NODE_PATH:+:$NODE_PATH}" ;; esac
 if [ -n "${HTTP_PROXY:-}" ]; then

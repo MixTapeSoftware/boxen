@@ -231,6 +231,13 @@ class BoxenWorkload(ScriptCase):
         self.assertEqual(path.count(f"{self.directory}/.local/share/mise/shims"), 1)
         self.assertEqual(path.count(f"{self.directory}/.local/bin"), 1)
 
+    def test_env_file_trusts_mise_config_in_the_workspace(self):
+        # A child process reads it, as mise does, so a plain assignment would fail.
+        probe = f'. {SCRIPTS}/env.sh; sh -c \'printf "%s" "$MISE_TRUSTED_CONFIG_PATHS"\''
+        value = subprocess.run(["sh", "-c", probe], env={"HOME": str(self.directory), "PATH": "/usr/bin:/bin"},
+                               capture_output=True, text=True).stdout
+        self.assertEqual(value, "/home/agent/workspace")
+
     def test_proxy_variables_are_never_exported_by_the_image(self):
         for script in SCRIPTS.glob("*.sh"):
             with self.subTest(script=script.name):
