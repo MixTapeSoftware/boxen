@@ -1,0 +1,15 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Boxen RTK for Codex
+description: RTK's hooks for Codex
+kind: mixin
+provides: ["boxen-rtkplus-codex@1.0.0"]
+# Requiring the agent orders this hook after the agent mixin's own setup.
+requires: ["boxen >= 1.0.0", "codex >= 0.100.0"]
+capabilities:
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: bash /usr/local/share/boxen/rtk-codex-hook.sh
+          user: "1000"
+          description: Register RTK's Codex hooks

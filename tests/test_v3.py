@@ -161,7 +161,7 @@ class BoxenWorkload(ScriptCase):
         context = capability("boxen", "agent-context@1")["config"]
         self.assertEqual(context["filename"], "AGENTS.md")
         self.assertIn("boxen shell --with-sudo", " ".join(context["content"].split()))
-        self.assertEqual([d.name for d in kit_dirs()], ["boxen"])
+        self.assertEqual([d.name for d in kit_dirs() if descriptor(d.name)["kind"] == "workload"], ["boxen"])
 
     def test_image_starts_as_agent_through_boxen_entry(self):
         text = (V3 / "boxen/boxen.dockerfile").read_text()
@@ -521,6 +521,117 @@ esac
             with self.subTest(gate=gate.name):
                 self.assertIn("source \"$(dirname \"$0\")/lib.sh\"", gate.read_text())
                 self.assertEqual(subprocess.run(["bash", "-n", str(gate)]).returncode, 0)
+
+class Mixins(ScriptCase):
+    NAMES = ["workspace", "tailscale", "gh-auth", "1pass", "rtkplus-claude", "rtkplus-codex"]
+
+    def test_mixins_are_declaration_only_and_sit_on_boxen(self):
+        for name in self.NAMES:
+            with self.subTest(kit=name):
+                self.assertFalse((V3 / name / f"{name}.dockerfile").exists())
+                data = descriptor(name)
+                self.assertEqual(data["kind"], "mixin")
+                self.assertEqual(data["provides"], [f"boxen-{name}@1.0.0"])
+                self.assertIn("boxen >= 1.0.0", data["requires"])
+
+    def test_first_launch_setup_is_an_install_hook(self):
+        for name, script in (("workspace", "workspace.sh"), ("gh-auth", "gh-auth.sh"),
+                             ("rtkplus-claude", "rtk-claude-hook.sh"), ("rtkplus-codex", "rtk-codex-hook.sh")):
+            with self.subTest(kit=name):
+                install = hooks(name, "install")
+                self.assertEqual(len(install), 1)
+                self.assertIn(GUEST + script, command_text(install[0]))
+                self.assertEqual(hooks(name, "startup"), [])
+        self.assertEqual(hooks("workspace", "install")[0]["user"], "0")
+        self.assertEqual(hooks("gh-auth", "install")[0]["user"], "1000")
+
+    def test_rtk_mixins_require_their_agent(self):
+        self.assertIn("claude >= 2.0.0", descriptor("rtkplus-claude")["requires"])
+        self.assertIn("codex >= 0.100.0", descriptor("rtkplus-codex")["requires"])
+        self.assertEqual(hooks("rtkplus-claude", "install")[0]["user"], "1000")
+        self.assertEqual(hooks("rtkplus-codex", "install")[0]["user"], "1000")
+
+    def test_tailscale_daemon_and_hosts(self):
+        hook = hooks("tailscale", "startup")[0]
+        self.assertEqual(hook["user"], "0")
+        self.assertTrue(hook["background"])
+        install = hooks("tailscale", "install")
+        self.assertEqual(len(install), 1)
+        self.assertEqual((install[0]["user"], install[0]["env"]), ("0", ["BOXEN_SERVE_PRESET"]))
+        self.assertIn("/etc/boxen/serve-preset", command_text(install[0]))
+        self.assertEqual(allowed("tailscale"), ["tailscale.com", "*.tailscale.com", "*.tailscale.io"])
+
+    def test_gh_auth_credential_is_proxy_managed_within_its_allow_list(self):
+        cred = capability("gh-auth", "credential@1")
+        self.assertTrue(cred["optional"])
+        config = cred["config"]
+        self.assertEqual(config["service"], "github")
+        self.assertEqual(config["phase"], ["runtime"])
+        self.assertEqual(config["apiKey"]["name"], "GH_TOKEN")
+        self.assertTrue(config["apiKey"]["proxyManaged"])
+        domains = {rule["domain"] for rule in config["apiKey"]["inject"]}
+        self.assertEqual(domains, {"github.com", "api.github.com", "gist.github.com"})
+        self.assertTrue(domains <= set(allowed("gh-auth")) | set(allowed("boxen")))
+
+    def test_1pass_declares_hosts_only(self):
+        self.assertEqual(allowed("1pass"), ["cache.agilebits.com", "*.1password.com", "*.1password.eu", "*.1password.ca"])
+        self.assertEqual([c["type"].rsplit("/", 1)[1] for c in descriptor("1pass")["capabilities"]], ["network-policy@2"])
+
+    def test_workspace_script_creates_links_and_preserves(self):
+        root = self.directory / "fs"
+        (root / "home/agent").mkdir(parents=True)
+        env = {"BOXEN_FS_ROOT": str(root)}
+        self.run_script("workspace.sh", env=env)
+        self.assertTrue((root / "home/agent/workspace").is_dir())
+        self.assertEqual(os.readlink(root / "workspace"), "/home/agent/workspace")
+        (root / "home/agent/workspace/keep").write_text("x")
+        self.run_script("workspace.sh", env=env)
+        self.assertEqual((root / "home/agent/workspace/keep").read_text(), "x")
+        os.unlink(root / "workspace"); (root / "workspace").mkdir()
+        self.run_script("workspace.sh", env=env)
+        self.assertFalse(os.path.islink(root / "workspace"))
+
+    def test_rtk_claude_hook_merges_without_touching_other_hooks(self):
+        claude = self.directory / ".claude"; claude.mkdir()
+        settings = claude / "settings.json"
+        before = {"model": "opus", "permissions": {"defaultMode": "bypassPermissions"}, "hooks": {"PreToolUse": [
+            {"matcher": "Bash", "hooks": [{"type": "command", "command": "audit"}, {"type": "command", "command": "rtk hook claude"}]},
+            {"matcher": "Write", "hooks": [{"type": "command", "command": "fmt"}]}],
+            "Stop": [{"hooks": [{"type": "command", "command": "notify"}]}]}}
+        settings.write_text(json.dumps(before))
+        self.run_script("rtk-claude-hook.sh"); self.run_script("rtk-claude-hook.sh")
+        after = json.loads(settings.read_text())
+        self.assertEqual(after["model"], "opus")
+        self.assertEqual(after["permissions"], before["permissions"])
+        self.assertEqual(after["hooks"]["Stop"], before["hooks"]["Stop"])
+        commands = [h["command"] for entry in after["hooks"]["PreToolUse"] for h in entry["hooks"]]
+        self.assertEqual(commands.count("rtk hook claude"), 1)
+        self.assertEqual([c for c in commands if c != "rtk hook claude"], ["audit", "fmt"])
+        self.assertEqual([m.get("matcher") for m in after["hooks"]["PreToolUse"]], ["Bash", "Write", "Bash"])
+        self.assertFalse(list(claude.glob("settings.*.tmp")))
+
+    def test_rtk_claude_hook_handles_missing_and_broken_settings(self):
+        claude = self.directory / ".claude"; claude.mkdir()
+        self.run_script("rtk-claude-hook.sh")
+        self.assertIn("rtk hook claude", (claude / "settings.json").read_text())
+        (claude / "settings.json").write_text("{not json")
+        result = self.run_script("rtk-claude-hook.sh", ok=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual((claude / "settings.json").read_text(), "{not json")
+        self.assertFalse(list(claude.glob("settings.*.tmp")))
+
+    def test_rtk_codex_hook_runs_rtk_init(self):
+        self.fake("rtk", 'echo "rtk $*" >> "$HOME/calls"')
+        self.run_script("rtk-codex-hook.sh")
+        self.assertEqual((self.directory / "calls").read_text().strip(), "rtk init --global --codex")
+
+    def test_no_identity_or_token_is_bundled(self):
+        for path in V3.rglob("*"):
+            if path.is_file():
+                text = path.read_text(errors="ignore")
+                self.assertNotEqual(path.name, "tailscaled.state")
+                self.assertNotRegex(text, r"tskey-auth-[A-Za-z0-9]+")
+                self.assertNotIn("export OP_SERVICE_ACCOUNT_TOKEN=", text)
 
 if __name__ == "__main__":
     unittest.main()

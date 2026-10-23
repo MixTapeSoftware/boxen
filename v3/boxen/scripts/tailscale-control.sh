@@ -4,6 +4,9 @@
 # Funnel, serve); changes go through boxen, which runs this as root.
 set +x
 set -euo pipefail
+# sudo -n resets the environment on a cloud sandbox; the tailscale mixin
+# records the preset chosen at create in a file.
+preset="${BOXEN_SERVE_PRESET:-$(cat "${BOXEN_SERVE_PRESET_FILE:-/etc/boxen/serve-preset}" 2>/dev/null || true)}"
 fail() { printf 'tailscale: %s\n' "$*" >&2; exit 1; }
 wait_for_daemon() {
   local attempt=0
@@ -23,7 +26,7 @@ serve() {
       target=$((10#$target))
       [[ "$target" -ge 1 && "$target" -le 65535 ]] || fail 'Port must be 1–65535'
       # The preset owns :443 -> 3000; replacing it would break the preset.
-      [[ "${BOXEN_SERVE_PRESET:-}" != supabase ]] ||
+      [[ "$preset" != supabase ]] ||
         fail 'The Supabase preset serves :443 from port 3000; run your app on 3000 instead.'
       mappings=("443:$target") ;;
   esac
@@ -53,7 +56,7 @@ case "${1:-}" in
       tailscale up --hostname="$hostname"
     else fail 'Use join HOSTNAME [--auth-key-stdin]'; fi
     # tailscaled keeps serve config in its state, so the preset is applied once.
-    if [[ "${BOXEN_SERVE_PRESET:-}" == supabase ]]; then serve supabase; fi
+    if [[ "$preset" == supabase ]]; then serve supabase; fi
     tailscale status
     ;;
   serve)
