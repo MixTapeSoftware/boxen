@@ -452,6 +452,12 @@ bash tests/workload-smoke.sh codex
 ~~~
 
 Set TEST_BASH to a Bash 3.2 executable to exercise the host CLI with it.
+
+[AGENTS.md](AGENTS.md) has the rules for agents working on this repository.
+Its skills, such as
+[botfight](https://github.com/MixTapeSoftware/skills/tree/main/botfight), live
+in `.agents/skills/`, linked for Claude Code and Grok. Refresh them from
+MixTapeSoftware/skills with `bash scripts/sync-skills.sh`.
 Tests never use personal credentials. Runtime checks do not authenticate
 agents, join a tailnet, or read a vault automatically.
 
