@@ -396,9 +396,11 @@ class HostGates(unittest.TestCase):
         # Lists existing-box plus every "name [status]" line in FAKE_EXTRA (id
         # sbx_<name>, running unless given); ls prints FAKE_LS_BODY instead when
         # set, and fails with FAKE_LS_EXIT, or once the file FAKE_LS_FAIL_FLAG exists.
+        # A local detached run exits with FAKE_RUN_EXIT.
         fake.write_text(r"""#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FAKE_LOG"
 case "$*" in
+  "run --detached"*) exit "${FAKE_RUN_EXIT:-0}" ;;
   *"ls --json"*)
     [[ "${FAKE_LS_EXIT:-0}" == 0 ]] || exit "$FAKE_LS_EXIT"
     [[ ! -e "$FAKE_LS_FAIL_FLAG" ]] || exit 7
@@ -489,7 +491,12 @@ esac
         for body, env, failure in (('borrow ghost-box', {}, "FAIL borrow ghost-box (not listed"),
                                    ('borrow existing-box', {"FAKE_LS_EXIT": "7"}, "FAIL borrow existing-box (sbx ls failed)"),
                                    ('borrow existing-box', {"FAKE_LS_BODY": "not json"}, "FAIL borrow existing-box (unreadable listing)"),
-                                   ('borrow existing-box', {"FAKE_LS_BODY": '{"sandboxes":[]}'}, "FAIL borrow existing-box (not listed")):
+                                   ('borrow existing-box', {"FAKE_LS_BODY": '{"sandboxes":[]}'}, "FAIL borrow existing-box (not listed"),
+                                   # Only running and stopped are known states to leave it in.
+                                   ('borrow existing-box', {"FAKE_LS_BODY": '{"sandboxes":[{"name":"existing-box"}]}'},
+                                    "FAIL borrow existing-box (status <none>"),
+                                   ('borrow existing-box', {"FAKE_LS_BODY": '{"sandboxes":[{"name":"existing-box","status":"starting"}]}'},
+                                    "FAIL borrow existing-box (status starting")):
             with self.subTest(body=body, env=env):
                 if self.log.exists():
                     self.log.unlink()
@@ -511,6 +518,12 @@ esac
         self.assertIn("PASS start old-box", result.stdout); self.assertIn("borrowed=1", result.stdout)
         self.assertIn("run --detached --name old-box", calls)
         self.assertFalse(any("rm" in call for call in calls), calls)
+        # A failed start ends the gate: a later sbx exec would start it unrecorded.
+        self.log.unlink()
+        result, calls = self.gate('borrow old-box; check after true', FAKE_RUN_EXIT="3")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("FAIL start old-box (exit 3)", result.stdout)
+        self.assertNotIn("PASS after", result.stdout)
 
     def test_the_launcher_gate_borrows_the_old_sandbox(self):
         text = (ROOT / "tests/host/launcher-gate.sh").read_text()

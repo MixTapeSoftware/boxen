@@ -94,8 +94,10 @@ claim() {
 # borrow NAME: use NAME, a local sandbox this gate did not make. End the gate
 # unless the listing shows it: sbx run --name with a name that is not listed
 # would make one, and a listing that fails or cannot be parsed is not proof
-# that NAME exists. Start it when it is not running and set GATE_BORROWED=1,
-# so the gate can stop it again and leave it as found.
+# that NAME exists. A running sandbox is used as it is; a stopped one is
+# started, with GATE_BORROWED=1 so the gate can stop it again and leave it
+# as found. Any other status, or none, ends the gate, as does a failed start
+# (a later sbx exec would start it without recording that).
 borrow() {
   local name="$1" listing status
   GATE_BORROWED=0
@@ -110,10 +112,13 @@ borrow() {
     *) gate_fail "borrow $name (unreadable listing)"; gate_abort ;;
   esac
   status="$(printf '%s' "$listing" | jq -r --arg n "$name" '[(.sandboxes? // .)[]? | select(.name == $n) | .status][0] // ""')"
-  if [[ "$status" != running ]]; then
-    check "start $name" sbx run --detached --name "$name" || return 1
-    GATE_BORROWED=1
-  fi
+  case "$status" in
+    running) ;;
+    stopped)
+      check "start $name" sbx run --detached --name "$name" || gate_abort
+      GATE_BORROWED=1 ;;
+    *) gate_fail "borrow $name (status ${status:-<none>}; only running or stopped is left as found)"; gate_abort ;;
+  esac
 }
 # made NAME [cloud]: this gate created NAME; only these are ever removed.
 made() {
