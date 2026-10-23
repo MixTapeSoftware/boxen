@@ -321,8 +321,9 @@ class BakedTools(ScriptCase):
         self.assertEqual(text[:add].rsplit("USER ", 1)[1].split("\n")[0], "root")
 
     def test_skills_install_links_every_skill_where_each_agent_reads_it(self):
-        # The skills repository's main branch, and gh stack's pinned checkout.
-        source, pinned = Path(tempfile.mkdtemp(dir=self.directory)), Path(tempfile.mkdtemp(dir=self.directory))
+        # The skills repository's main branch, and gh stack's pinned checkout, in paths with spaces.
+        source = Path(tempfile.mkdtemp(prefix="skills repo ", dir=self.directory))
+        pinned = Path(tempfile.mkdtemp(prefix="gh stack ", dir=self.directory))
         for root, name in ((source, "botfight"), (source, "other"), (pinned, "gh-stack")):
             (root / name).mkdir()
             (root / name / "SKILL.md").write_text(f"---\nname: {name}\n---\n")
@@ -330,7 +331,7 @@ class BakedTools(ScriptCase):
         (pinned / "gh-stack/references").mkdir()
         (pinned / "gh-stack/references/commands.md").write_text("commands\n")
         claude, shared = self.directory / "etc/claude-code/.claude/skills", self.directory / "home/.agents/skills"
-        env = dict(os.environ, BOXEN_SKILLS_SRC=f"{source} {pinned}", BOXEN_CLAUDE_SKILLS=str(claude),
+        env = dict(os.environ, BOXEN_SKILLS_SRC=f"{source}:{pinned}", BOXEN_CLAUDE_SKILLS=str(claude),
                    BOXEN_AGENT_HOME=str(self.directory / "home"), BOXEN_AGENT_OWNER=f"{os.getuid()}:{os.getgid()}")
         for _ in range(2):
             result = subprocess.run(["bash", str(SCRIPTS / "skills-install.sh")], env=env, capture_output=True, text=True)
@@ -340,11 +341,15 @@ class BakedTools(ScriptCase):
             self.assertTrue((target / "botfight/SKILL.md").is_file(), target)
             self.assertEqual(sorted(p.name for p in (target / "botfight").iterdir()), ["SKILL.md"])
             self.assertTrue((target / "gh-stack/references/commands.md").is_file(), target)
-        # A box without either required skill fails the build.
-        (pinned / "gh-stack/SKILL.md").unlink()
-        fresh = dict(env, BOXEN_CLAUDE_SKILLS=str(self.directory / "fresh"), BOXEN_AGENT_HOME=str(self.directory / "fresh-home"))
-        result = subprocess.run(["bash", str(SCRIPTS / "skills-install.sh")], env=fresh, capture_output=True, text=True)
-        self.assertNotEqual(result.returncode, 0)
+        # A box missing either required skill fails the build.
+        for required in (source / "botfight/SKILL.md", pinned / "gh-stack/SKILL.md"):
+            text = required.read_text()
+            required.unlink()
+            fresh = Path(tempfile.mkdtemp(dir=self.directory))
+            result = subprocess.run(["bash", str(SCRIPTS / "skills-install.sh")], capture_output=True, text=True,
+                                    env=dict(env, BOXEN_CLAUDE_SKILLS=str(fresh / "skills"), BOXEN_AGENT_HOME=str(fresh / "home")))
+            self.assertNotEqual(result.returncode, 0, required)
+            required.write_text(text)
         script = (SCRIPTS / "skills-install.sh").read_text()
         # Claude Code's system-wide folder, and the one Codex and Grok both read.
         self.assertIn("/etc/claude-code/.claude/skills", script)
