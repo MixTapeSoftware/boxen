@@ -522,9 +522,6 @@ esac
                 self.assertIn("source \"$(dirname \"$0\")/lib.sh\"", gate.read_text())
                 self.assertEqual(subprocess.run(["bash", "-n", str(gate)]).returncode, 0)
 
-if __name__ == "__main__":
-    unittest.main()
-
 class Mixins(ScriptCase):
     NAMES = ["workspace", "tailscale", "gh-auth", "1pass", "rtkplus-claude", "rtkplus-codex"]
 
@@ -635,3 +632,6 @@ class Mixins(ScriptCase):
                 self.assertNotEqual(path.name, "tailscaled.state")
                 self.assertNotRegex(text, r"tskey-auth-[A-Za-z0-9]+")
                 self.assertNotIn("export OP_SERVICE_ACCOUNT_TOKEN=", text)
+
+if __name__ == "__main__":
+    unittest.main()
