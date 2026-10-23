@@ -42,7 +42,7 @@ elif [[ -e "$target" ]]; then
   fi
 fi
 if [[ -n "$target" ]]; then
-  # The launcher resolves the link, so lib/ and kits/ stay in this checkout.
+  # The launcher resolves the link, so lib/ and v3/ stay in this checkout.
   ln -s "$PROJECT_DIR/boxen" "$target"
   log "Linked $target -> $PROJECT_DIR/boxen"
 fi

@@ -1,5 +1,9 @@
 # Boxen
 
+**Status:** Superseded on 2026-10-23 by `2026-10-21-v3-kits.md` for kits,
+volumes and cloud; the launcher, credential and Tailscale choices still stand.
+The body below is kept as the record.
+
 A standalone project that provisions development sandboxes for coding agents on
 local Docker Sandboxes, through the `boxen` command.
 

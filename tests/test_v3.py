@@ -188,7 +188,14 @@ class BoxenWorkload(ScriptCase):
 
     def test_boxen_keeps_the_v2_core_hosts_on_ubuntu_mirrors(self):
         hosts = set(allowed("boxen"))
-        core = yaml.safe_load((ROOT / "kits/core/spec.yaml").read_text())["permissions"]["network"]["allow"] if (ROOT / "kits/core/spec.yaml").exists() else []
+        # v2's kits/core allow list as it stood at the cutover.
+        core = ["github.com", "api.github.com", "raw.githubusercontent.com", "objects.githubusercontent.com",
+                "release-assets.githubusercontent.com", "codeload.github.com", "archive.ubuntu.com:80",
+                "security.ubuntu.com:80", "ports.ubuntu.com:80", "archive.ubuntu.com:443", "security.ubuntu.com:443",
+                "ports.ubuntu.com:443", "download.docker.com", "cli.github.com", "nodejs.org", "registry.npmjs.org",
+                "go.dev", "dl.google.com", "proxy.golang.org", "sum.golang.org", "storage.googleapis.com",
+                "api.mason-registry.dev", "www.skills.sh", "mise.en.dev", "d5l0dvt14r5h8.cloudfront.net",
+                "d2glxqk2uabbnd.cloudfront.net", "deno.land", "mcp.supabase.com"]
         for host in core:
             self.assertIn(host, hosts)
         for host in ("archive.ubuntu.com:80", "security.ubuntu.com:443", "d5l0dvt14r5h8.cloudfront.net", "d2glxqk2uabbnd.cloudfront.net"):
@@ -373,9 +380,22 @@ class BakedTools(ScriptCase):
     def test_runtime_hosts_are_the_union_of_the_v2_kits(self):
         # Exactly the union: a host added or dropped here is a change to the
         # sandbox's network boundary and has to be made on purpose.
-        union = set()
-        for kit in ("core", "cubic", "nvchad", "chromium"):
-            union |= set(yaml.safe_load((ROOT / "kits" / kit / "spec.yaml").read_text())["permissions"]["network"]["allow"])
+        # v2's core, cubic, nvchad and chromium allow lists as they stood at the cutover.
+        union = {
+            "api.cubic.dev", "api.github.com", "api.mason-registry.dev", "app.cubic.dev",
+            "archive.ubuntu.com:443", "archive.ubuntu.com:80", "builds.hex.pm",
+            "cdn.playwright.dev", "cli.github.com", "codeberg.org", "codeload.github.com",
+            "cubic.dev", "d2glxqk2uabbnd.cloudfront.net", "d5l0dvt14r5h8.cloudfront.net",
+            "deno.land", "dl.google.com", "download.docker.com", "elixir-lang.org",
+            "files.pythonhosted.org", "github.com", "go.dev", "googlechromelabs.github.io",
+            "hex.pm", "mcafvrhahbqdwfrtncql.supabase.co", "mcp.supabase.com", "mise.en.dev",
+            "nodejs.org", "objects.githubusercontent.com", "playwright.download.prss.microsoft.com",
+            "ports.ubuntu.com:443", "ports.ubuntu.com:80", "proxy.golang.org", "pypi.org",
+            "raw.githubusercontent.com", "registry.npmjs.org", "registry.npmmirror.com",
+            "release-assets.githubusercontent.com", "repo.hex.pm", "security.ubuntu.com:443",
+            "security.ubuntu.com:80", "storage.googleapis.com", "sum.golang.org", "www.cubic.dev",
+            "www.skills.sh"
+        }
         self.assertEqual(set(allowed("boxen")), union)
 
     def test_check_script_checks_every_baked_tool_unconditionally(self):
@@ -559,6 +579,16 @@ esac
                 self.assertIn('source "$(dirname "$0")/../../lib/pins.sh"', text)
                 self.assertNotIn("sbx-kit-claude:", text)   # Docker's agent workloads are no longer used
 
+    def test_smoke_runs_cover_every_agent_through_the_v3_launcher(self):
+        smoke = (ROOT / "tests/workload-smoke.sh").read_text()
+        for v2 in ("kits/", "agents/", "kit add", "template ls"):
+            self.assertNotIn(v2, smoke)
+        self.assertIn("shell|claude|codex|grok", smoke)
+        self.assertIn('"$project/boxen" create', smoke)
+        gate = (ROOT / "tests/host/smoke-gate.sh").read_text()
+        self.assertIn("for agent in shell claude codex grok", gate)
+        self.assertIn("for rtk in rtk nortk", gate)
+
     def test_host_scripts_guard_array_expansions_for_bash_3_2(self):
         # Under set -u, Bash 3.2 treats "${a[@]}" of an empty array as unbound.
         guarded = re.compile(r'\$\{(\w+)\[@\]\+"\$\{\1\[@\]\}"\}')
@@ -702,6 +732,35 @@ class Launcher(unittest.TestCase):
             with self.subTest(plugin=line.split("\t")[0]):
                 self.assertNotIn("volume", line)
                 self.assertNotIn("CLI", line)
+
+class Cutover(unittest.TestCase):
+    def test_v2_kits_and_validator_are_gone(self):
+        for path in ("kits", "agents", "tests/validator", "tests/validate-upstream.sh", "tests/test_kits.py", "cloud"):
+            self.assertFalse((ROOT / path).exists(), path)
+        text = (ROOT / "README.md").read_text()
+        self.assertNotIn("kits-v2", text)
+        self.assertNotIn("sbx kit add", text)
+        self.assertNotIn("in progress", text)
+        self.assertIn("v3/boxen", text)
+        self.assertIn("https://docs.docker.com/ai/sandboxes/customize/", text)
+        self.assertIn("## Cloud sandboxes", text)
+        design = (ROOT / "docs/superpowers/specs/2026-10-12-boxen-design.md").read_text()
+        self.assertIn("Superseded", design)
+
+    def test_guest_script_tests_run_the_v3_copies(self):
+        for test in ("test_agent_login.py", "test_tailscale.py"):
+            with self.subTest(test=test):
+                text = (ROOT / "tests" / test).read_text()
+                self.assertNotIn("kits/", text)
+                self.assertIn("v3/boxen/scripts/", text)
+
+    def test_only_the_launcher_fallback_names_the_old_guest_path(self):
+        for path in [ROOT / "boxen", ROOT / "install", *sorted((ROOT / "lib").glob("*.sh"))]:
+            for number, line in enumerate(path.read_text().splitlines(), 1):
+                with self.subTest(path=path.name, line=number):
+                    self.assertNotRegex(line, r"(?<![./\w])(kits|agents)/")
+                    if ".local/share/boxen" in line and not line.lstrip().startswith("#"):
+                        self.assertIn("/usr/local/share/boxen/", line)   # guest_script's probe: v3 first, then pre-v3
 
 if __name__ == "__main__":
     unittest.main()
