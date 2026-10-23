@@ -283,6 +283,59 @@ class BoxenWorkload(ScriptCase):
         self.assertIn(GUEST + "browser-check.py", text)
         self.assertIn(GUEST + "lazy-check.lua", text)
 
+class BakedTools(unittest.TestCase):
+    ROOT_STEPS = ["core-root.sh", "chromium-root.sh", "tailscale-install.sh"]
+    USER_STEPS = ["core-user.sh", "fzf-bat.sh", "just.sh", "glow.sh", "mermaid-ascii.sh", "overmind.sh",
+                  "cubic.sh", "1pass.sh", "rtk-install.sh", "chromium.sh", "nvchad.sh"]
+
+    def test_dockerfile_runs_every_installer_in_order(self):
+        text = (V3 / "boxen/boxen.dockerfile").read_text()
+        runs = re.findall(r"^RUN bash " + re.escape(GUEST) + r"([A-Za-z0-9_.-]+)$", text, re.M)
+        self.assertEqual(runs, self.ROOT_STEPS + self.USER_STEPS)
+        self.assertLess(text.index("tailscale-install.sh"), text.index("USER agent"))
+        self.assertGreater(text.index("RUN bash " + GUEST + "nvchad.sh"), text.index("USER agent"))
+
+    def test_pinned_downloads_are_checksummed(self):
+        for script in SCRIPTS.glob("*.sh"):
+            text = script.read_text()
+            with self.subTest(script=script.name):
+                self.assertNotIn("@latest", text)
+                self.assertNotIn("releases/latest", text)
+                if re.findall(r'curl -fsSL "[^"]+" -o', text):
+                    self.assertIn("sha256sum -c", text)
+
+    def test_nvchad_steps_are_time_limited_and_find_the_plugin_check(self):
+        script = (SCRIPTS / "nvchad.sh").read_text()
+        for line in script.replace("\\\n", " ").splitlines():
+            with self.subTest(line=line):
+                self.assertNotRegex(line, r'^\s*(curl|nvim|npm|git clone) ')
+        self.assertIn(GUEST + "lazy-check.lua", script)
+
+    def test_rtk_install_only_installs_the_binary(self):
+        text = (SCRIPTS / "rtk-install.sh").read_text()
+        self.assertNotIn("rtk init", text)
+        self.assertNotIn("claude-rtk.json", text)
+
+    def test_runtime_hosts_are_the_union_of_the_v2_kits(self):
+        hosts = set(allowed("boxen"))
+        for host in ("api.cubic.dev", "app.cubic.dev", "cubic.dev", "www.cubic.dev", "mcafvrhahbqdwfrtncql.supabase.co",
+                     "pypi.org", "files.pythonhosted.org", "hex.pm", "repo.hex.pm", "builds.hex.pm", "elixir-lang.org",
+                     "registry.npmmirror.com", "codeberg.org", "cdn.playwright.dev",
+                     "playwright.download.prss.microsoft.com", "googlechromelabs.github.io"):
+            self.assertIn(host, hosts)
+        self.assertFalse({h for h in hosts if "tailscale" in h or "1password" in h or "agilebits" in h or "gist." in h}, hosts)
+
+    def test_check_script_checks_every_baked_tool_unconditionally(self):
+        text = (SCRIPTS / "check.sh").read_text()
+        for binary in ("fzf", "bat", "just", "glow", "mermaid-ascii", "overmind", "rtk", "nvim", "op", "tailscale",
+                       "google-chrome", "chromedriver", "cubic"):
+            self.assertRegex(text, r"\b" + re.escape(binary) + r"\b")
+        head = text.split("BOXEN_PLUGINS")[0]
+        for binary in ("fzf", "nvim", "op", "google-chrome"):
+            self.assertIn(binary, head)
+        self.assertIn("BOXEN_AGENT", text)
+
+
 class HostGates(unittest.TestCase):
     def setUp(self):
         self.bin = Path(tempfile.mkdtemp()); self.log = self.bin / "calls"
