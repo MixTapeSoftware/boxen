@@ -591,14 +591,17 @@ tunnel_forward() {
     die "Forwarding 127.0.0.1:$host to $name's port $port failed (is the port free on this laptop?): $out"
   fi
 }
+# The record goes only once ssh cancels the forward or the master is down.
 tunnel_cancel() {
-  local name="$1" host="$2" forwards="$TUNNEL_STATE/$1.forwards" port
+  local name="$1" host="$2" forwards="$TUNNEL_STATE/$1.forwards" port out
   port="$(awk -v h="$host" '$1 == h { print $2; exit }' "$forwards" 2>/dev/null || true)"
   [[ -n "$port" ]] || die "127.0.0.1:$host is not forwarded (see boxen net $name -l)"
   if tunnel_up "$name"; then
     ssh_base
-    "${ssh_cmd[@]}" -S "$tunnel_sock" -O cancel -L "127.0.0.1:$host:127.0.0.1:$port" \
-      "$tunnel_id@sbx_cloud" </dev/null >/dev/null 2>&1 || warn "ssh did not cancel 127.0.0.1:$host; it ends with the tunnel."
+    if ! out="$("${ssh_cmd[@]}" -S "$tunnel_sock" -O cancel -L "127.0.0.1:$host:127.0.0.1:$port" \
+        "$tunnel_id@sbx_cloud" </dev/null 2>&1)" && tunnel_up "$name"; then
+      die "ssh did not cancel 127.0.0.1:$host, so it stays forwarded until the tunnel closes (boxen stop $name): $out"
+    fi
   fi
   awk -v h="$host" '$1 != h' "$forwards" > "$forwards.tmp"
   mv "$forwards.tmp" "$forwards"
@@ -1226,10 +1229,12 @@ cmd_cron() {
   esac
 }
 
-# The local list, then the cloud's when boxen made cloud sandboxes.
+# The local list, then the cloud's when boxen made cloud sandboxes. With
+# both, a backend that cannot be listed is skipped with a warning, so cloud
+# boxes still show with no local runtime.
 list_sandboxes() {
-  sbx ls "$@"
-  has_cloud_rows || return 0
+  if ! has_cloud_rows; then sbx ls "$@"; return; fi
+  sbx ls "$@" || warn 'Could not list the local sandboxes.'
   printf '\nCloud\n'
   CLOUD=1
   sbx ls "$@" || warn 'Could not list the cloud sandboxes.'

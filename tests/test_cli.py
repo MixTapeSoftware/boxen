@@ -170,6 +170,12 @@ if '-O' in args:
             print('mux_client_forward: forwarding request failed: Port forwarding failed', file=sys.stderr)
             sys.exit(1)
         lines.append(spec)
+    elif verb == 'cancel' and spec.split(':')[1] in os.environ.get('FAKE_SSH_CANCEL_FAIL', '').split(','):
+        # With FAKE_SSH_MASTER_DIES_ON_CANCEL the master goes away as the cancel fails.
+        if os.environ.get('FAKE_SSH_MASTER_DIES_ON_CANCEL'):
+            os.remove(master)
+        print('mux_client_forward: forwarding request failed: port forwarding not found', file=sys.stderr)
+        sys.exit(1)
     elif verb == 'cancel' and spec in lines:
         lines.remove(spec)
     open(forwards, 'w').write(''.join(line + '\n' for line in lines))
@@ -985,6 +991,17 @@ class CLI(unittest.TestCase):
         self.assertIn(["stop", "local1"], [c["args"] for c in self.calls()])
         self.assertIn("Could not list the cloud sandboxes", result.stderr)
 
+    def test_listing_shows_the_cloud_when_the_local_backend_cannot_be_listed(self):
+        self.cli("create", "team", "--no-copy", "--cloud", "--plugins", "none")
+        self.env["FAKE_LS_FAIL"] = "local"                       # cloud sandboxes with no local runtime
+        for command in (["ls"], ["status", "--once"]):
+            with self.subTest(command=command):
+                result = self.cli(*command)
+                self.assertIn("Could not list the local sandboxes", result.stderr)
+                self.assertIn("Cloud", result.stdout); self.assertIn("team", result.stdout)
+        (self.directory / "state/sandboxes").unlink()            # no cloud rows: the local failure is the result
+        self.assertIn("cannot reach the sandbox service", self.cli("ls", ok=False).stderr)
+
     def test_cloud_github_token_is_stored_before_the_run(self):
         output, code = self.tty("create", "team", "--no-copy", "--cloud", "--plugins", "gh-auth",
                                 script=[(b"GitHub token", b"github_pat_fake\r")])
@@ -1080,6 +1097,20 @@ class CLI(unittest.TestCase):
         self.assertIn("54323", result.stderr)
         listed = self.cli("net", "team", "-l").stdout
         self.assertIn("127.0.0.1:3010", listed); self.assertNotIn("54323", listed)
+
+    def test_a_forward_ssh_did_not_cancel_stays_recorded(self):
+        self.cli("create", "team", "--no-copy", "--cloud", "--plugins", "none"); self.log.unlink()
+        self.cli("net", "team", "3000", "3001", "3002")
+        self.env["FAKE_SSH_CANCEL_FAIL"] = "3000,3001"
+        result = self.cli("net", "team", "-r", "3000", ok=False)
+        self.assertIn("127.0.0.1:3000", result.stderr); self.assertNotIn("Removed", result.stdout)
+        self.assertIn("127.0.0.1:3000 -> 3000", self.cli("net", "team", "-l").stdout)   # still live, still listed
+        self.assertIn("already forwarded", self.cli("net", "team", "3000", ok=False).stderr)
+        self.env["FAKE_SSH_MASTER_DIES_ON_CANCEL"] = "1"          # the cancel failed because the master is gone
+        self.assertIn("Removed 127.0.0.1:3001", self.cli("net", "team", "-r", "3001").stdout)
+        self.assertNotIn("3001", self.cli("net", "team", "-l").stdout)
+        del self.env["FAKE_SSH_CANCEL_FAIL"]; del self.env["FAKE_SSH_MASTER_DIES_ON_CANCEL"]
+        self.assertIn("Removed 127.0.0.1:3002", self.cli("net", "team", "-r", "3002").stdout)   # master down
 
     def test_dead_tunnels_are_reconciled(self):
         self.cli("create", "team", "--no-copy", "--cloud", "--plugins", "none"); self.log.unlink()
