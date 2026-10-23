@@ -6,7 +6,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-SCRIPT = ROOT / "kits/core/files/home/.local/share/boxen/agent-login.sh"
+SCRIPT = ROOT / "v3/boxen/scripts/agent-login.sh"
 
 
 class AgentLogin(unittest.TestCase):
@@ -42,11 +42,6 @@ class AgentLogin(unittest.TestCase):
         self.assertEqual(self.run_script("claude", "login"), (0, ["claude auth login"]))
         self.assertEqual(self.run_script("codex", "login"), (0, ["codex login --device-auth"]))
         self.assertEqual(self.run_script("shell", "login")[0], 1)
-
-
-class AgentLoginV3(AgentLogin):
-    """The v3 image's copy must behave the same as the v2 kit's."""
-    script = ROOT / "v3/boxen/scripts/agent-login.sh"
 
 
 if __name__ == "__main__":

@@ -202,6 +202,10 @@ Still to run (the command, then what it records):
 - `bash tests/host/day2-probe.sh start`, then `check` a day later: whether a
   stopped cloud box can be resumed past Docker's 24-hour cap. Its result file
   is an input to the cutover's acceptance run.
+- `bash tests/host/acceptance-gate.sh`, last, on a clean committed revision:
+  every gate above once, with the revision, the base and mixin digests and the
+  day-2 result. The v2 kits are removed only after it passes; its summary goes
+  here, and the README's retention sentence is written from the day-2 result.
 
 Not run: Bash 3.2 (no Bash 3.2 binary in the development container; set
 `TEST_BASH` to one and run `bash tests/run.sh`), arm64 hosts and macOS hosts.
