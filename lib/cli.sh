@@ -1220,10 +1220,12 @@ cmd_cron() {
   esac
 }
 
-# The local list, then the cloud's when boxen made cloud sandboxes.
+# The local list, then the cloud's when boxen made cloud sandboxes. With
+# both, a backend that cannot be listed is skipped with a warning, so cloud
+# boxes still show with no local runtime.
 list_sandboxes() {
-  sbx ls "$@"
-  has_cloud_rows || return 0
+  if ! has_cloud_rows; then sbx ls "$@"; return; fi
+  sbx ls "$@" || warn 'Could not list the local sandboxes.'
   printf '\nCloud\n'
   CLOUD=1
   sbx ls "$@" || warn 'Could not list the cloud sandboxes.'

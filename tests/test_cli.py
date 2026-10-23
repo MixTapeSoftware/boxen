@@ -965,6 +965,17 @@ class CLI(unittest.TestCase):
         self.assertIn(["stop", "local1"], [c["args"] for c in self.calls()])
         self.assertIn("Could not list the cloud sandboxes", result.stderr)
 
+    def test_listing_shows_the_cloud_when_the_local_backend_cannot_be_listed(self):
+        self.cli("create", "team", "--no-copy", "--cloud", "--plugins", "none")
+        self.env["FAKE_LS_FAIL"] = "local"                       # cloud sandboxes with no local runtime
+        for command in (["ls"], ["status", "--once"]):
+            with self.subTest(command=command):
+                result = self.cli(*command)
+                self.assertIn("Could not list the local sandboxes", result.stderr)
+                self.assertIn("Cloud", result.stdout); self.assertIn("team", result.stdout)
+        (self.directory / "state/sandboxes").unlink()            # no cloud rows: the local failure is the result
+        self.assertIn("cannot reach the sandbox service", self.cli("ls", ok=False).stderr)
+
     def test_cloud_github_token_is_stored_before_the_run(self):
         output, code = self.tty("create", "team", "--no-copy", "--cloud", "--plugins", "gh-auth",
                                 script=[(b"GitHub token", b"github_pat_fake\r")])
