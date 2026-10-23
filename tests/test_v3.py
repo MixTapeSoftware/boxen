@@ -648,5 +648,12 @@ class Launcher(unittest.TestCase):
         expected = {d.name for d in kit_dirs()} - {"boxen", "workspace", "rtkplus-claude", "rtkplus-codex"} | {"rtkplus"}
         self.assertEqual(set(kits), expected)
 
+    def test_plugin_descriptions_promise_nothing_the_mixins_lack(self):
+        # No Boxen mixin declares a volume, and every tool is in the image already.
+        for line in (ROOT / "plugins.tsv").read_text().splitlines()[1:]:
+            with self.subTest(plugin=line.split("\t")[0]):
+                self.assertNotIn("volume", line)
+                self.assertNotIn("CLI", line)
+
 if __name__ == "__main__":
     unittest.main()

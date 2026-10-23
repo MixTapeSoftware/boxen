@@ -30,11 +30,22 @@ create_sandbox v3-open -- ./boxen create v3-open --no-copy --plugins none --no-t
 expect 'example.com answers through the open network' 200 ./boxen exec v3-open sh -c 'curl -sS --max-time 15 -o /dev/null -w "%{http_code}" https://example.com/'
 check 'stop v3-open' ./boxen stop v3-open
 
-say "=== 5. a sandbox the v2 launcher made"
+say "=== 5. v3-serve: supabase-serve reaches the tailscale mixin's install hook"
+create_sandbox v3-serve -- ./boxen create v3-serve --no-copy --plugins supabase-serve --no-tui
+expect 'serve preset recorded' supabase ./boxen exec v3-serve cat /etc/boxen/serve-preset
+check 'stop v3-serve' ./boxen stop v3-serve
+
+say "=== 6. a sandbox the v2 launcher made"
+# Not this gate's sandbox: start it only when it is stopped, and leave it as found.
+old_status() { sbx ls --json </dev/null | jq -r --arg n "$1" '(.sandboxes? // .)[]? | select(.name == $n) | .status'; }
+started_old=0
 if [[ -n "${BOXEN_OLD_SANDBOX:-}" ]]; then
-  check "start $BOXEN_OLD_SANDBOX" sbx run --detached --name "$BOXEN_OLD_SANDBOX"
+  if [[ "$(old_status "$BOXEN_OLD_SANDBOX")" != running ]]; then
+    check "start $BOXEN_OLD_SANDBOX" sbx run --detached --name "$BOXEN_OLD_SANDBOX" && started_old=1
+  fi
   check "./boxen check $BOXEN_OLD_SANDBOX" ./boxen check "$BOXEN_OLD_SANDBOX"
   expect "./boxen $BOXEN_OLD_SANDBOX runs a command" old-ok ./boxen "$BOXEN_OLD_SANDBOX" 'echo old-ok'
+  if [[ "$started_old" == 1 ]]; then check "stop $BOXEN_OLD_SANDBOX again" ./boxen stop "$BOXEN_OLD_SANDBOX"; fi
 else
   say 'SKIP old sandbox: set BOXEN_OLD_SANDBOX to a sandbox the v2 launcher made'
 fi
