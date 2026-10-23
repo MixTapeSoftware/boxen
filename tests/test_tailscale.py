@@ -8,7 +8,7 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-CONTROL = ROOT / "kits/tailscale/files/home/.local/share/boxen/tailscale-control.sh"
+CONTROL = ROOT / "v3/boxen/scripts/tailscale-control.sh"
 
 
 class TailscaleControl(unittest.TestCase):
@@ -26,6 +26,8 @@ class TailscaleControl(unittest.TestCase):
             FAKE_TAILSCALE_LOG=str(self.log),
             FAKE_TAILSCALE_RUNTIME=str(self.directory),
             FAKE_READY="1", FAKE_UP_EXIT="0", FAKE_SERVE_FAIL_AT="0",
+            # Never read a real guest's preset when the tests run inside a sandbox.
+            BOXEN_SERVE_PRESET_FILE=str(self.directory / "serve-preset"),
         )
         self.tool("tailscale", '''
 import hashlib, json, os, pathlib, stat, sys
@@ -161,16 +163,6 @@ print(path)
         result = self.run_control("serve", "supabase", ok=False)
         self.assertEqual(result.returncode, 19)
         self.assertEqual(len(self.calls("serve")), 2)
-
-
-class TailscaleControlV3(TailscaleControl):
-    """The v3 image's copy must behave the same as the v2 kit's."""
-    control = ROOT / "v3/boxen/scripts/tailscale-control.sh"
-
-    def setUp(self):
-        super().setUp()
-        # Never read a real guest's preset when the tests run inside a sandbox.
-        self.env["BOXEN_SERVE_PRESET_FILE"] = str(self.directory / "serve-preset")
 
     def test_preset_is_read_from_the_guest_file_when_the_environment_is_reset(self):
         # On a cloud sandbox the helper runs under sudo -n, which drops

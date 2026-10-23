@@ -915,7 +915,7 @@ create() {
       printf '%s' "$gh_token" | sbx secret set --sandbox "$name" github || die 'Storing the GitHub token failed; nothing was created.'
       gh_token_stored=1
     fi
-    log "Creating $name in Docker Cloud; the first upload of the kits takes a few minutes"
+    log "Creating $name in Docker Cloud; the kits upload from this checkout first"
     if ! sbx "${command[@]}" >/dev/null; then
       # The name was free before this attempt, so a sandbox there now (or one
       # that cannot be ruled out) is this attempt's: keep it and its secret.
