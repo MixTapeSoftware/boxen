@@ -18,7 +18,7 @@ WORKDIR /home/agent
 COPY --chown=root:root scripts/core-user.sh /usr/local/share/boxen/core-user.sh
 RUN bash /usr/local/share/boxen/core-user.sh
 # One step per tool, so a change rebuilds only that tool and the ones after it.
-COPY --chown=root:root scripts/fzf-bat.sh scripts/fzf-shell.sh /usr/local/share/boxen/
+COPY --chown=root:root scripts/fzf-bat.sh /usr/local/share/boxen/fzf-bat.sh
 RUN bash /usr/local/share/boxen/fzf-bat.sh
 COPY --chown=root:root scripts/just.sh /usr/local/share/boxen/just.sh
 RUN bash /usr/local/share/boxen/just.sh

@@ -341,6 +341,23 @@ class BakedTools(ScriptCase):
                 if re.findall(r'curl -fsSL "[^"]+" -o', text):
                     self.assertIn("sha256sum -c", text)
 
+    def test_only_the_known_vendor_installers_are_piped_to_a_shell(self):
+        # cubic's and RTK's installers are unpinned on purpose, as in v2; any
+        # other download piped to a shell runs unverified code at build time.
+        piped = sorted(s.name for s in SCRIPTS.glob("*.sh")
+                       if re.search(r"curl [^|\n]*\|\s*(?:\w+=\S+\s+)*(?:ba)?sh\b", s.read_text()))
+        self.assertEqual(piped, ["cubic.sh", "rtk-install.sh"])
+
+    def test_an_installer_step_copies_only_what_its_script_uses(self):
+        # Runtime-only files come with the last COPY, so editing one never
+        # rebuilds an installer step.
+        text = (V3 / "boxen/boxen.dockerfile").read_text()
+        for files, script in re.findall(r"^COPY (?:--chown=\S+ )?((?:scripts/\S+ )+)\S+\nRUN bash " + re.escape(GUEST) + r"(\S+)$", text, re.M):
+            body = (SCRIPTS / script).read_text()
+            for extra in (f[len("scripts/"):] for f in files.split() if f != "scripts/" + script):
+                with self.subTest(step=script, file=extra):
+                    self.assertIn(extra, body)
+
     def test_nvchad_steps_are_time_limited_and_find_the_plugin_check(self):
         script = (SCRIPTS / "nvchad.sh").read_text()
         for line in script.replace("\\\n", " ").splitlines():
@@ -354,13 +371,12 @@ class BakedTools(ScriptCase):
         self.assertNotIn("claude-rtk.json", text)
 
     def test_runtime_hosts_are_the_union_of_the_v2_kits(self):
-        hosts = set(allowed("boxen"))
-        for host in ("api.cubic.dev", "app.cubic.dev", "cubic.dev", "www.cubic.dev", "mcafvrhahbqdwfrtncql.supabase.co",
-                     "pypi.org", "files.pythonhosted.org", "hex.pm", "repo.hex.pm", "builds.hex.pm", "elixir-lang.org",
-                     "registry.npmmirror.com", "codeberg.org", "cdn.playwright.dev",
-                     "playwright.download.prss.microsoft.com", "googlechromelabs.github.io"):
-            self.assertIn(host, hosts)
-        self.assertFalse({h for h in hosts if "tailscale" in h or "1password" in h or "agilebits" in h or "gist." in h}, hosts)
+        # Exactly the union: a host added or dropped here is a change to the
+        # sandbox's network boundary and has to be made on purpose.
+        union = set()
+        for kit in ("core", "cubic", "nvchad", "chromium"):
+            union |= set(yaml.safe_load((ROOT / "kits" / kit / "spec.yaml").read_text())["permissions"]["network"]["allow"])
+        self.assertEqual(set(allowed("boxen")), union)
 
     def test_check_script_checks_every_baked_tool_unconditionally(self):
         text = (SCRIPTS / "check.sh").read_text()
