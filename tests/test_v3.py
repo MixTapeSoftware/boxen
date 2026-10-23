@@ -284,7 +284,7 @@ class BoxenWorkload(ScriptCase):
         self.assertIn(GUEST + "browser-check.py", text)
         self.assertIn(GUEST + "lazy-check.lua", text)
 
-class BakedTools(unittest.TestCase):
+class BakedTools(ScriptCase):
     ROOT_STEPS = ["core-root.sh", "chromium-root.sh", "tailscale-install.sh"]
     USER_STEPS = ["core-user.sh", "fzf-bat.sh", "just.sh", "glow.sh", "mermaid-ascii.sh", "overmind.sh",
                   "cubic.sh", "1pass.sh", "rtk-install.sh", "chromium.sh", "nvchad.sh"]
@@ -292,9 +292,38 @@ class BakedTools(unittest.TestCase):
     def test_dockerfile_runs_every_installer_in_order(self):
         text = (V3 / "boxen/boxen.dockerfile").read_text()
         runs = re.findall(r"^RUN bash " + re.escape(GUEST) + r"([A-Za-z0-9_.-]+)$", text, re.M)
-        self.assertEqual(runs, self.ROOT_STEPS + self.USER_STEPS)
+        self.assertEqual(runs, self.ROOT_STEPS + self.USER_STEPS + ["skills-install.sh"])
         self.assertLess(text.index("tailscale-install.sh"), text.index("USER agent"))
         self.assertGreater(text.index("RUN bash " + GUEST + "nvchad.sh"), text.index("USER agent"))
+
+    def test_botfight_comes_from_the_skills_main_branch_after_the_slow_steps(self):
+        # A new commit on main rebuilds from this step on, so it sits after the installers.
+        text = (V3 / "boxen/boxen.dockerfile").read_text()
+        add = text.index("ADD https://github.com/MixTapeSoftware/skills.git#main /usr/local/share/boxen/skills\n")
+        self.assertGreater(add, text.index("RUN bash " + GUEST + "nvchad.sh"))
+        self.assertLess(add, text.index("RUN bash " + GUEST + "skills-install.sh"))
+        self.assertEqual(text[:add].rsplit("USER ", 1)[1].split("\n")[0], "root")
+
+    def test_skills_install_links_botfight_where_claude_and_codex_read_system_skills(self):
+        source = Path(tempfile.mkdtemp(dir=self.directory))
+        (source / "botfight").mkdir()
+        (source / "botfight/SKILL.md").write_text("---\nname: botfight\n---\n")
+        claude, codex = self.directory / "etc/claude-code/.claude/skills", self.directory / "etc/codex/skills"
+        env = dict(os.environ, BOXEN_SKILLS_SRC=str(source), BOXEN_CLAUDE_SKILLS=str(claude), BOXEN_CODEX_SKILLS=str(codex))
+        for _ in range(2):
+            result = subprocess.run(["bash", str(SCRIPTS / "skills-install.sh")], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        for target in (claude, codex):
+            self.assertTrue((target / "botfight/SKILL.md").is_file(), target)
+            self.assertEqual(sorted(p.name for p in (target / "botfight").iterdir()), ["SKILL.md"])
+        script = (SCRIPTS / "skills-install.sh").read_text()
+        self.assertIn("/etc/claude-code/.claude/skills", script)
+        self.assertIn("/etc/codex/skills", script)
+
+    def test_check_script_checks_the_botfight_skill(self):
+        text = (SCRIPTS / "check.sh").read_text()
+        self.assertIn("/etc/claude-code/.claude/skills/botfight/SKILL.md", text)
+        self.assertIn("/etc/codex/skills/botfight/SKILL.md", text)
 
     def test_pinned_downloads_are_checksummed(self):
         for script in SCRIPTS.glob("*.sh"):
