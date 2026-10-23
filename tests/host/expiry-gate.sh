@@ -27,6 +27,8 @@ for i in 0 1; do
   n="${NAMES[i]}"
   check "marker in $n" ./boxen exec "$n" sh -c 'echo survived > /workspace/marker'
   ids[i]="$(id_of "$n")"
+  # Two empty ids would make the later comparison pass without reading one.
+  must "$n id listed" test -n "${ids[i]}"
   record "$n id" printf '%s\n' "${ids[i]}"
   record "$n ttl" sbx --cloud ttl --json "$n"
   expires[i]="$(expires_at "$n")"

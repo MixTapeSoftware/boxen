@@ -1087,6 +1087,36 @@ class CLI(unittest.TestCase):
         listed = self.cli("net", "team", "-l").stdout
         self.assertIn("127.0.0.1:4000", listed); self.assertNotIn("tunnel down", listed)
 
+    def test_net_resumes_a_stopped_cloud_box_but_list_and_remove_never_start_it(self):
+        self.cli("create", "team", "--no-copy", "--cloud", "--plugins", "none")
+        self.env["FAKE_SBX_CLOUD_RUNNING"] = "team"
+        self.cli("net", "team", "3000")
+        (self.directory / "ssh-state/master").unlink()      # an expiry stopped the box and the master died
+        self.env["FAKE_SBX_CLOUD_RUNNING"] = ""
+        self.log.unlink()
+
+        def runs():
+            return [c["args"] for c in self.calls() if c["args"][:2] == ["--cloud", "run"]]
+
+        def masters():
+            return len([a for a in self.ssh_calls() if "-M" in a])
+        self.cli("net", "team", "-l")
+        self.assertEqual(runs(), [])                         # listing never starts it
+        self.cli("net", "team")                              # reopening resumes it first
+        self.assertEqual(runs(), [["--cloud", "run", "--detached", "--name", "team"]])
+        self.assertEqual(masters(), 2)
+        self.log.unlink()
+        self.cli("net", "team", "-r", "3000")
+        self.assertEqual(runs(), [])                         # removing never starts it
+        (self.directory / "ssh-state/master").unlink()
+        self.env["FAKE_RUN_FAIL"] = "1"                      # a resume that fails opens no tunnel
+        self.assertIn("Could not resume team", self.cli("net", "team", "3001", ok=False).stderr)
+        self.assertEqual(masters(), 2)
+        del self.env["FAKE_RUN_FAIL"]
+        self.cli("net", "team", "3001")
+        self.assertEqual(runs(), [["--cloud", "run", "--detached", "--name", "team"]] * 2)
+        self.assertEqual([a[a.index("-L") + 1] for a in self.control("forward")][-1], "127.0.0.1:3001:127.0.0.1:3001")
+
     def test_stop_delete_and_kill_all_close_the_tunnel(self):
         self.cli("create", "team", "--no-copy", "--cloud", "--plugins", "none"); self.log.unlink()
         self.cli("net", "team", "3000")
