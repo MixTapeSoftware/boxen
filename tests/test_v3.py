@@ -294,7 +294,7 @@ class BoxenWorkload(ScriptCase):
 class BakedTools(ScriptCase):
     ROOT_STEPS = ["core-root.sh", "chromium-root.sh", "tailscale-install.sh"]
     USER_STEPS = ["core-user.sh", "fzf-bat.sh", "just.sh", "glow.sh", "mermaid-ascii.sh", "overmind.sh",
-                  "cubic.sh", "1pass.sh", "rtk-install.sh", "chromium.sh", "nvchad.sh"]
+                  "cubic.sh", "1pass.sh", "rtk-install.sh", "chromium.sh", "nvchad.sh", "gh-stack.sh"]
 
     def test_dockerfile_runs_every_installer_in_order(self):
         text = (V3 / "boxen/boxen.dockerfile").read_text()
@@ -312,21 +312,30 @@ class BakedTools(ScriptCase):
         self.assertEqual(text[:add].rsplit("USER ", 1)[1].split("\n")[0], "root")
 
     def test_skills_install_links_every_skill_where_each_agent_reads_it(self):
-        source = Path(tempfile.mkdtemp(dir=self.directory))
-        for name in ("botfight", "other"):
-            (source / name).mkdir()
-            (source / name / "SKILL.md").write_text(f"---\nname: {name}\n---\n")
+        # The skills repository's main branch, and gh stack's pinned checkout.
+        source, pinned = Path(tempfile.mkdtemp(dir=self.directory)), Path(tempfile.mkdtemp(dir=self.directory))
+        for root, name in ((source, "botfight"), (source, "other"), (pinned, "gh-stack")):
+            (root / name).mkdir()
+            (root / name / "SKILL.md").write_text(f"---\nname: {name}\n---\n")
         (source / "README.md").write_text("not a skill\n")
+        (pinned / "gh-stack/references").mkdir()
+        (pinned / "gh-stack/references/commands.md").write_text("commands\n")
         claude, shared = self.directory / "etc/claude-code/.claude/skills", self.directory / "home/.agents/skills"
-        env = dict(os.environ, BOXEN_SKILLS_SRC=str(source), BOXEN_CLAUDE_SKILLS=str(claude),
+        env = dict(os.environ, BOXEN_SKILLS_SRC=f"{source} {pinned}", BOXEN_CLAUDE_SKILLS=str(claude),
                    BOXEN_AGENT_HOME=str(self.directory / "home"), BOXEN_AGENT_OWNER=f"{os.getuid()}:{os.getgid()}")
         for _ in range(2):
             result = subprocess.run(["bash", str(SCRIPTS / "skills-install.sh")], env=env, capture_output=True, text=True)
             self.assertEqual(result.returncode, 0, result.stderr)
         for target in (claude, shared):
-            self.assertEqual(sorted(p.name for p in target.iterdir()), ["botfight", "other"], target)
+            self.assertEqual(sorted(p.name for p in target.iterdir()), ["botfight", "gh-stack", "other"], target)
             self.assertTrue((target / "botfight/SKILL.md").is_file(), target)
             self.assertEqual(sorted(p.name for p in (target / "botfight").iterdir()), ["SKILL.md"])
+            self.assertTrue((target / "gh-stack/references/commands.md").is_file(), target)
+        # A box without either required skill fails the build.
+        (pinned / "gh-stack/SKILL.md").unlink()
+        fresh = dict(env, BOXEN_CLAUDE_SKILLS=str(self.directory / "fresh"), BOXEN_AGENT_HOME=str(self.directory / "fresh-home"))
+        result = subprocess.run(["bash", str(SCRIPTS / "skills-install.sh")], env=fresh, capture_output=True, text=True)
+        self.assertNotEqual(result.returncode, 0)
         script = (SCRIPTS / "skills-install.sh").read_text()
         # Claude Code's system-wide folder, and the one Codex and Grok both read.
         self.assertIn("/etc/claude-code/.claude/skills", script)
@@ -335,9 +344,31 @@ class BakedTools(ScriptCase):
 
     def test_check_script_checks_the_botfight_skill_for_every_agent(self):
         text = (SCRIPTS / "check.sh").read_text()
-        self.assertIn("/etc/claude-code/.claude/skills/botfight/SKILL.md", text)
-        self.assertIn("$HOME/.agents/skills/botfight/SKILL.md", text)
+        for skill in ("botfight", "gh-stack"):
+            self.assertIn(f"/etc/claude-code/.claude/skills/{skill}/SKILL.md", text)
+            self.assertIn(f"$HOME/.agents/skills/{skill}/SKILL.md", text)
+        self.assertIn("gh stack --version", text)
         self.assertNotIn("/etc/codex/skills", text)
+
+    def test_gh_stack_is_one_pinned_release_with_its_own_skill(self):
+        script = (SCRIPTS / "gh-stack.sh").read_text()
+        self.assertIn("version=v0.2.1", script)
+        self.assertIn('"https://github.com/github/gh-stack/releases/download/$version/linux-$arch"', script)
+        self.assertEqual(len(re.findall(r"checksum=[0-9a-f]{64}\b", script)), 2)   # amd64 and arm64
+        self.assertIn("sha256sum -c", script)
+        # gh's own manifest for a pinned install, so gh extension upgrade leaves it alone.
+        self.assertIn("ispinned: true", script)
+        self.assertIn("/gh/extensions/gh-stack", script)
+        # The skill comes from the commit the pinned release was built from.
+        commit = re.search(r"\bcommit ([0-9a-f]{40})\b", script)[1]
+        text = (V3 / "boxen/boxen.dockerfile").read_text()
+        add = text.index(f"ADD https://github.com/github/gh-stack.git#{commit} /usr/local/share/boxen/gh-stack\n")
+        self.assertGreater(add, text.index("RUN bash " + GUEST + "gh-stack.sh"))
+        self.assertLess(add, text.index("RUN bash " + GUEST + "skills-install.sh"))
+        self.assertEqual(text[:add].rsplit("USER ", 1)[1].split("\n")[0], "root")
+        self.assertIn("/usr/local/share/boxen/gh-stack/skills", (SCRIPTS / "skills-install.sh").read_text())
+        # The release is pinned, so its upgrade notices would only ask for an upgrade gh refuses.
+        self.assertIn("export GH_STACK_NO_UPDATE_NOTIFIER=1", (SCRIPTS / "env.sh").read_text())
 
     def test_pinned_downloads_are_checksummed(self):
         for script in SCRIPTS.glob("*.sh"):

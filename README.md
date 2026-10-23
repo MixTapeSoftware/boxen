@@ -210,6 +210,7 @@ builds the image on the first `create` and caches it. It has:
 | cubic | The vendor's user-level installer; log in on first use |
 | RTK | 0.51.0; the `rtkplus` option adds its hook for Claude or Codex |
 | Tailscale, 1Password | Tailscale 1.104.1 and op 2.30.0; their options turn them on |
+| gh stack | GitHub's [gh stack](https://github.com/github/gh-stack) extension v0.2.1 for stacked pull requests, pinned so `gh extension upgrade` leaves it alone, with its agent skill from the same release |
 | Skills | Every skill from [MixTapeSoftware/skills](https://github.com/MixTapeSoftware/skills), such as botfight, for Claude Code (in `/etc/claude-code/.claude/skills/`) and for Codex and Grok (in `~/.agents/skills/`) |
 
 Agents are Docker's agent mixins, pinned by tag and digest in `lib/pins.sh`:
@@ -234,10 +235,12 @@ the file. No Boxen kit declares a volume. Guest scripts live at
 `/usr/local/share/boxen/`.
 
 Downloads of pinned binaries (mise, Tailscale, the 1Password CLI, Chrome for
-Testing, Neovim, mermaid-ascii) are checked against SHA-256 sums. The boundary is
-stated, not implied: `node@22`, the Oh My Zsh and autosuggestions clones, the
-skills, and the cubic, Grok and RTK vendor installers float, so a cold build is
-repeatable for the checksummed artifacts, not byte for byte.
+Testing, Neovim, mermaid-ascii, gh stack) are checked against SHA-256 sums, and
+gh stack's skill comes from the commit its release was built from. The
+boundary is stated, not implied: `node@22`, the Oh My Zsh and autosuggestions
+clones, the skills repository's skills, and the cubic, Grok and RTK vendor
+installers float, so a cold build is repeatable for the checksummed artifacts,
+not byte for byte.
 
 The workload's network rules are the union of what Boxen's tools need at
 runtime (GitHub, Ubuntu, Node, Go, Mason, Chrome for Testing and cubic among
