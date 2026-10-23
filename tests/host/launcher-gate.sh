@@ -2,9 +2,9 @@
 # Task 5 gate: does the launcher itself create, check, open and validate from
 # the v3 kits? Runs ./boxen against real sbx and Docker with a registry of its
 # own (gate_begin), so the user's is never read or changed. BOXEN_OLD_SANDBOX
-# may name a sandbox the v2 launcher made, to show that the guest-script probe
-# still reaches its scripts; unset, that part records SKIP. Needs sbx, Docker
-# with buildx, and jq. Run from anywhere:
+# may name a sandbox the v2 launcher made, which sbx ls must list, to show that
+# the guest-script probe still reaches its scripts; unset, that part records
+# SKIP. Needs sbx, Docker with buildx, and jq. Run from anywhere:
 #   bash tests/host/launcher-gate.sh
 source "$(dirname "$0")/lib.sh"
 cd "$(dirname "$0")/../.." || exit 2
@@ -36,16 +36,13 @@ expect 'serve preset recorded' supabase ./boxen exec v3-serve cat /etc/boxen/ser
 check 'stop v3-serve' ./boxen stop v3-serve
 
 say "=== 6. a sandbox the v2 launcher made"
-# Not this gate's sandbox: start it only when it is stopped, and leave it as found.
-old_status() { sbx ls --json </dev/null | jq -r --arg n "$1" '(.sandboxes? // .)[]? | select(.name == $n) | .status'; }
-started_old=0
+# Not this gate's sandbox: borrow ends the gate unless sbx ls lists it, and
+# starts it only when it is stopped; leave it as found.
 if [[ -n "${BOXEN_OLD_SANDBOX:-}" ]]; then
-  if [[ "$(old_status "$BOXEN_OLD_SANDBOX")" != running ]]; then
-    check "start $BOXEN_OLD_SANDBOX" sbx run --detached --name "$BOXEN_OLD_SANDBOX" && started_old=1
-  fi
+  borrow "$BOXEN_OLD_SANDBOX"
   check "./boxen check $BOXEN_OLD_SANDBOX" ./boxen check "$BOXEN_OLD_SANDBOX"
   expect "./boxen $BOXEN_OLD_SANDBOX runs a command" old-ok ./boxen "$BOXEN_OLD_SANDBOX" 'echo old-ok'
-  if [[ "$started_old" == 1 ]]; then check "stop $BOXEN_OLD_SANDBOX again" ./boxen stop "$BOXEN_OLD_SANDBOX"; fi
+  if [[ "$GATE_BORROWED" == 1 ]]; then check "stop $BOXEN_OLD_SANDBOX again" ./boxen stop "$BOXEN_OLD_SANDBOX"; fi
 else
   say 'SKIP old sandbox: set BOXEN_OLD_SANDBOX to a sandbox the v2 launcher made'
 fi

@@ -2,7 +2,8 @@
 # aggregate result; nothing is claimed from a gate that did not exit 0.
 # A gate makes sandboxes only through create_sandbox, which refuses a name
 # that already exists (or a listing it cannot read) and records what it
-# made; the exit trap removes only those. Needs jq; sbx and docker are
+# made; the exit trap removes only those. A sandbox it did not make is used
+# only through borrow, which never makes one. Needs jq; sbx and docker are
 # reached through SBX_BIN and DOCKER_BIN.
 SBX="${SBX_BIN:-sbx}"
 DOCKER="${DOCKER_BIN:-docker}"
@@ -13,6 +14,7 @@ GATE_LOG=/dev/null
 GATE_CHECKS=0
 GATE_FAILED=0
 GATE_MADE=()
+GATE_BORROWED=0
 
 say() { printf '%s %s\n' "$(date -u +%FT%TZ)" "$*" | tee -a "$GATE_LOG"; }
 gate_pass() { GATE_CHECKS=$((GATE_CHECKS + 1)); say "PASS $1"; }
@@ -87,6 +89,35 @@ claim() {
     0) gate_fail "claim $name (exists)"; gate_abort ;;
     1) gate_pass "claim $name" ;;
     *) gate_fail "claim $name (unreadable listing)"; gate_abort ;;
+  esac
+}
+# borrow NAME: use NAME, a local sandbox this gate did not make. End the gate
+# unless the listing shows it: sbx run --name with a name that is not listed
+# would make one, and a listing that fails or cannot be parsed is not proof
+# that NAME exists. A running sandbox is used as it is; a stopped one is
+# started, with GATE_BORROWED=1 so the gate can stop it again and leave it
+# as found. Any other status, or none, ends the gate, as does a failed start
+# (a later sbx exec would start it without recording that).
+borrow() {
+  local name="$1" listing status
+  GATE_BORROWED=0
+  if ! listing="$(gate_listing </dev/null 2>>"$GATE_LOG")"; then
+    gate_fail "borrow $name (sbx ls failed)"; gate_abort
+  fi
+  printf '%s' "$listing" | jq -e --arg n "$name" 'any((.sandboxes? // .)[]?; .name == $n)' >/dev/null 2>&1
+  status=$?
+  case "$status" in
+    0) ;;
+    1) gate_fail "borrow $name (not listed by sbx ls; sbx run would make it)"; gate_abort ;;
+    *) gate_fail "borrow $name (unreadable listing)"; gate_abort ;;
+  esac
+  status="$(printf '%s' "$listing" | jq -r --arg n "$name" '[(.sandboxes? // .)[]? | select(.name == $n) | .status][0] // ""')"
+  case "$status" in
+    running) ;;
+    stopped)
+      check "start $name" sbx run --detached --name "$name" || gate_abort
+      GATE_BORROWED=1 ;;
+    *) gate_fail "borrow $name (status ${status:-<none>}; only running or stopped is left as found)"; gate_abort ;;
   esac
 }
 # made NAME [cloud]: this gate created NAME; only these are ever removed.
