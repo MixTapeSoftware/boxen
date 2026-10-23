@@ -455,6 +455,12 @@ Set TEST_BASH to a Bash 3.2 executable to exercise the host CLI with it.
 Tests never use personal credentials. Runtime checks do not authenticate
 agents, join a tailnet, or read a vault automatically.
 
+[AGENTS.md](AGENTS.md) has the rules for agents working on this repository.
+Its skills, such as
+[botfight](https://github.com/MixTapeSoftware/skills/tree/main/botfight), live
+in `.agents/skills/`, linked for Claude Code and Grok. Refresh them from
+MixTapeSoftware/skills with `bash scripts/sync-skills.sh`.
+
 The code suite includes isolated Tailscale tests using fake commands for route
 arguments, timeouts, and auth-file cleanup. Further live Tailscale smoke
 validation is skipped for this prototype at the user's request.
