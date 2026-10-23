@@ -228,7 +228,8 @@ resume_if_stopped() {
   json="$(sbx ls --json </dev/null)" || return 0
   status="$(printf '%s' "$json" | jq -r --arg n "$1" '.sandboxes[]? | select(.name == $n) | .status')"
   [[ -n "$status" && "$status" != running ]] || return 0
-  log "Resuming $1"
+  # On stderr: stdout stays the command's own output, which scripts capture.
+  log "Resuming $1" >&2
   sbx run --detached --name "$1" </dev/null >/dev/null || die "Could not resume $1; see sbx --cloud ls."
 }
 
@@ -544,13 +545,18 @@ tunnel_up() {
 tunnel_master() {
   local name="$1" replay="${2:-}" forwards="$TUNNEL_STATE/$1.forwards" stale="" host port
   if tunnel_up "$name"; then return 0; fi
-  if [[ -s "$forwards" ]]; then stale="$(cat "$forwards")"; fi
-  rm -f "$forwards"
   mkdir -p "$TUNNEL_STATE"
   tunnel_id="$(cloud_id "$name")"
   printf '%s\n' "$tunnel_id" > "$TUNNEL_STATE/$name.id"
   tunnel_sock="$(tunnel_socket "$tunnel_id")"
   ssh_base
+  # A live master this registry had lost track of: keep using it.
+  if "${ssh_cmd[@]}" -S "$tunnel_sock" -O check "$tunnel_id@sbx_cloud" </dev/null >/dev/null 2>&1; then return 0; fi
+  if [[ -s "$forwards" ]]; then stale="$(cat "$forwards")"; fi
+  rm -f "$forwards"
+  # A master that died uncleanly leaves its socket, and ssh would then start
+  # without multiplexing, so every forward would fail.
+  rm -f "$tunnel_sock"
   # A file, not a pipe: ssh -f keeps its output open after it forks.
   "${ssh_cmd[@]}" -f -N -M -S "$tunnel_sock" -o ExitOnForwardFailure=yes \
     -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 \
@@ -585,14 +591,17 @@ tunnel_forward() {
     die "Forwarding 127.0.0.1:$host to $name's port $port failed (is the port free on this laptop?): $out"
   fi
 }
+# The record goes only once ssh cancels the forward or the master is down.
 tunnel_cancel() {
-  local name="$1" host="$2" forwards="$TUNNEL_STATE/$1.forwards" port
+  local name="$1" host="$2" forwards="$TUNNEL_STATE/$1.forwards" port out
   port="$(awk -v h="$host" '$1 == h { print $2; exit }' "$forwards" 2>/dev/null || true)"
   [[ -n "$port" ]] || die "127.0.0.1:$host is not forwarded (see boxen net $name -l)"
   if tunnel_up "$name"; then
     ssh_base
-    "${ssh_cmd[@]}" -S "$tunnel_sock" -O cancel -L "127.0.0.1:$host:127.0.0.1:$port" \
-      "$tunnel_id@sbx_cloud" </dev/null >/dev/null 2>&1 || warn "ssh did not cancel 127.0.0.1:$host; it ends with the tunnel."
+    if ! out="$("${ssh_cmd[@]}" -S "$tunnel_sock" -O cancel -L "127.0.0.1:$host:127.0.0.1:$port" \
+        "$tunnel_id@sbx_cloud" </dev/null 2>&1)" && tunnel_up "$name"; then
+      die "ssh did not cancel 127.0.0.1:$host, so it stays forwarded until the tunnel closes (boxen stop $name): $out"
+    fi
   fi
   awk -v h="$host" '$1 != h' "$forwards" > "$forwards.tmp"
   mv "$forwards.tmp" "$forwards"
@@ -853,6 +862,7 @@ create() {
     return
   fi
   need_sbx
+  need_docker
   CLOUD="$cloud"
   if [[ "$cloud" == 1 ]]; then need_jq 'create --cloud'; fi
   # One name across both backends: the registry, then the selected backend,
@@ -867,7 +877,6 @@ create() {
     fi
     die "$name already exists locally (not made by boxen); pick another name or remove it with sbx rm $name"
   fi
-  need_docker
   if [[ "$cloud" == 0 ]]; then memory_ok "$memory" || exit 1; fi
   warn_host_wide_agent_secret "$agent"
   if [[ "$gh_stdin" == 1 ]]; then IFS= read -r gh_token || true; fi
@@ -1002,7 +1011,7 @@ cmd_shell() {
   name="$1"; shift
   need_sandbox "$name"
   if [[ "$with_sudo" == 1 && "$CLOUD" == 1 ]]; then
-    log "cloud sandboxes keep Docker's sudo; sudo is already available in the shell"
+    log "cloud sandboxes keep Docker's sudo; sudo is already available in the shell" >&2
     with_sudo=0
   fi
   resume_if_stopped "$name"
@@ -1220,10 +1229,12 @@ cmd_cron() {
   esac
 }
 
-# The local list, then the cloud's when boxen made cloud sandboxes.
+# The local list, then the cloud's when boxen made cloud sandboxes. With
+# both, a backend that cannot be listed is skipped with a warning, so cloud
+# boxes still show with no local runtime.
 list_sandboxes() {
-  sbx ls "$@"
-  has_cloud_rows || return 0
+  if ! has_cloud_rows; then sbx ls "$@"; return; fi
+  sbx ls "$@" || warn 'Could not list the local sandboxes.'
   printf '\nCloud\n'
   CLOUD=1
   sbx ls "$@" || warn 'Could not list the cloud sandboxes.'
