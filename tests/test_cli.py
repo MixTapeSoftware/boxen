@@ -89,6 +89,8 @@ elif cmd == 'exec' and cloud and '--user' in args:
     fail('--user is not supported with --cloud', 2)
 elif cmd == 'exec' and any('agent-login.sh' in a for a in args) and args[-1] == 'status':
     sys.exit(int(env('FAKE_LOGIN_STATUS', '0')))
+elif cmd == 'exec' and env('FAKE_EXEC_STDOUT'):
+    print(env('FAKE_EXEC_STDOUT'))
 elif cmd == 'version':
     print('sbx version: v' + env('FAKE_SBX_VERSION', '0.47.0') + ' 0411f50')
 elif cmd == 'create':
@@ -149,13 +151,15 @@ if '-G' in args:
         print('proxycommand sbx cloud ssh-proxy %h %p')
     print('user agent')
     sys.exit(0)
+socket = args[args.index('-S') + 1] if '-S' in args else None
 if '-O' in args:
     verb = args[args.index('-O') + 1]
     if verb == 'check':
         sys.exit(0 if os.path.exists(master) else 255)
     if verb == 'exit':
-        if os.path.exists(master):
-            os.remove(master)
+        for path in (master, socket):
+            if path and os.path.exists(path):
+                os.remove(path)
         sys.exit(0)
     if not os.path.exists(master):
         sys.exit(255)
@@ -171,7 +175,12 @@ if '-O' in args:
     open(forwards, 'w').write(''.join(line + '\n' for line in lines))
     sys.exit(0)
 if '-M' in args:
+    if socket and os.path.exists(socket):
+        print('ControlSocket %s already exists, disabling multiplexing' % socket, file=sys.stderr)
+        sys.exit(0)
     open(master, 'w').close()
+    if socket:
+        open(socket, 'w').close()
 sys.exit(0)
 """
 
@@ -453,7 +462,7 @@ class CLI(unittest.TestCase):
         self.env["FAKE_DOCKER_FAIL"] = "1"
         result = self.cli("create", "box", "--no-copy", "--plugins", "none", ok=False)
         self.assertIn("Install Docker and start it; sbx builds local v3 kits with it", result.stderr)
-        self.assertEqual(self.calls(), [])
+        self.assertEqual(self.calls(everything=True), [])   # not even a listing
         self.cli("create", "box", "--no-copy", "--plugins", "none", "--dry-run")  # dry runs never need Docker
 
     def test_cubic_flag_is_gone(self):
@@ -910,6 +919,17 @@ class CLI(unittest.TestCase):
         self.cli("shell", "team", "true")
         self.assertFalse(any(c["args"][1] == "run" for c in self.calls()))
 
+    def test_cloud_notices_go_to_stderr_so_command_output_stays_exact(self):
+        self.cli("create", "team", "--no-copy", "--cloud", "--plugins", "none"); self.log.unlink()
+        self.env["FAKE_EXEC_STDOUT"] = "survived"
+        result = self.cli("exec", "team", "cat", "/workspace/marker")      # stopped, so resumed first
+        self.assertEqual(result.stdout, "survived\n")
+        self.assertIn("Resuming team", result.stderr)
+        self.assertTrue(any(c["args"][1:3] == ["run", "--detached"] for c in self.calls()))
+        result = self.cli("shell", "--with-sudo", "team", "true")
+        self.assertEqual(result.stdout, "survived\n")
+        self.assertIn("sudo is already available", result.stderr)
+
     def test_local_sandboxes_never_get_the_cloud_flag(self):
         self.cli("create", "box", "--no-copy", "--plugins", "none")
         self.log.unlink()
@@ -1075,6 +1095,15 @@ class CLI(unittest.TestCase):
         self.assertNotIn("127.0.0.1:3000", listed)          # the stale mapping was dropped, not advertised
         (self.directory / "ssh-state/master").unlink()
         self.cli("stop", "team"); self.cli("delete", "team", stdin="y\n")   # neither fails on a dead master
+
+    def test_a_stale_control_socket_does_not_block_a_new_tunnel(self):
+        self.cli("create", "team", "--no-copy", "--cloud", "--plugins", "none"); self.log.unlink()
+        self.cli("net", "team", "3000")
+        master = next(a for a in self.ssh_calls() if "-M" in a)
+        self.assertTrue(Path(master[master.index("-S") + 1]).exists())
+        (self.directory / "ssh-state/master").unlink()      # killed uncleanly: its socket file stays
+        self.cli("net", "team", "3001")
+        self.assertIn("127.0.0.1:3001", self.cli("net", "team", "-l").stdout)
 
     def test_net_with_no_ports_reopens_the_recorded_forwards(self):
         self.cli("create", "team", "--no-copy", "--cloud", "--plugins", "none"); self.log.unlink()
