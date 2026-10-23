@@ -44,7 +44,7 @@ expect 'env line added once' 1 in_mix grep -c boxen/env.sh /etc/sandbox-persiste
 expect 'no serve preset recorded' '' in_mix cat /etc/boxen/serve-preset
 
 say "=== 3. running"
-must "start $MIX" sbx run --detached --name "$MIX"
+must "start $MIX" sbx run -d --name "$MIX"
 wait_for 'Tailscale socket' 30 socket_up "$MIX"
 check "Boxen's checks pass with every plugin on" in_mix env BOXEN_AGENT=claude BOXEN_PLUGINS=tailscale,gh-auth,1pass,rtkplus bash /usr/local/share/boxen/check.sh
 record 'check.sh output' in_mix env BOXEN_AGENT=claude BOXEN_PLUGINS=tailscale,gh-auth,1pass,rtkplus bash /usr/local/share/boxen/check.sh
@@ -54,7 +54,7 @@ check 'write a marker' in_mix sh -c 'echo marker > /home/agent/workspace/marker'
 record 'tailscale state directory' in_mix ls -ld /var/lib/tailscale
 before="$(in_mix md5sum /etc/sandbox-persistent.sh </dev/null 2>/dev/null)"
 check "stop $MIX" sbx stop "$MIX"
-must "start $MIX again" sbx run --detached --name "$MIX"
+must "start $MIX again" sbx run -d --name "$MIX"
 wait_for 'Tailscale socket after restart' 30 socket_up "$MIX"
 expect 'one tailscaled' 1 in_mix pgrep -cx tailscaled
 expect 'the marker survived' marker in_mix cat /home/agent/workspace/marker
@@ -76,7 +76,7 @@ say "=== 6. Grok with every mixin but RTK"
 create_sandbox v3-mix-grok -- sbx create --name v3-mix-grok --cpus 4 --memory 4g \
   --env BOXEN_AGENT=grok --env BOXEN_PLUGINS=tailscale,gh-auth,1pass \
   --kit "$(mixin_ref grok)" --kit ./v3/workspace --kit ./v3/tailscale --kit ./v3/gh-auth --kit ./v3/1pass ./v3/boxen
-must 'start v3-mix-grok' sbx run --detached --name v3-mix-grok
+must 'start v3-mix-grok' sbx run -d --name v3-mix-grok
 wait_for 'Tailscale socket for Grok' 30 socket_up v3-mix-grok
 check "Boxen's checks pass for Grok with every other plugin" sbx exec v3-mix-grok env BOXEN_AGENT=grok BOXEN_PLUGINS=tailscale,gh-auth,1pass bash /usr/local/share/boxen/check.sh
 check 'stop v3-mix-grok' sbx stop v3-mix-grok

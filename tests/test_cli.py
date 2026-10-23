@@ -69,7 +69,8 @@ if cmd == 'ls':
         for row in rows:
             if cloud:
                 row['id'] = 'sbx_%s0001' % row['name']
-        print(json.dumps({'sandboxes': rows}))
+        # sbx 0.48 prints the bare array; FAKE_LS_WRAPPED is 0.47's {"sandboxes": [...]}.
+        print(json.dumps({'sandboxes': rows} if env('FAKE_LS_WRAPPED') else rows))
     else:
         print('\n'.join(['NAME'] + here))
 elif args[:2] == ['secret', 'ls']:
@@ -101,6 +102,8 @@ elif cmd == 'create':
         sys.exit(7)
     names.append(flag('--name')); save_names()
 elif cmd == 'run' and '--detached' in args:
+    fail('error: unknown flag: --detached')     # sbx 0.48 renamed it --detach
+elif cmd == 'run' and '-d' in args:
     name = flag('--name')
     if env('FAKE_RUN_FAIL'):
         # With FAKE_RUN_FAIL_AFTER_CREATE the sandbox exists before the run fails.
@@ -283,7 +286,7 @@ class CLI(unittest.TestCase):
         self.assertIn("BOXEN_PLUGINS=", calls[0]["args"])
         self.assertEqual(self.kits(calls[0]["args"]), ["workspace"])
         self.assertEqual(self.agent_mixins(calls[0]["args"]), [])
-        self.assertEqual(calls[1]["args"], ["run", "--detached", "--name", "scratch"])
+        self.assertEqual(calls[1]["args"], ["run", "-d", "--name", "scratch"])
         self.assertFalse(any("tar" in c["args"] for c in calls))
 
     def test_default_copies_the_current_directory(self):
@@ -691,7 +694,9 @@ class CLI(unittest.TestCase):
         self.env["FAKE_RUN_FAIL"] = "1"
         result = self.cli("create", "half", "--no-copy", ok=False)
         self.assertIn("was created, but starting it failed", result.stderr)
-        self.assertIn("sbx rm half", result.stderr)
+        # Boxen's own commands: sbx rm would leave the name registered.
+        self.assertIn("boxen delete half", result.stderr)
+        self.assertNotIn("sbx rm", result.stderr)
         self.assertFalse(any(c["args"][0] == "rm" for c in self.calls()))
 
     def test_env_files_need_acknowledgement(self):
@@ -747,7 +752,7 @@ class CLI(unittest.TestCase):
         self.cli("create", "team", "--no-copy", "--cloud", "--claude", "--plugins", "gh-auth")
         calls = self.calls()
         args = calls[0]["args"]
-        self.assertEqual(args[:3], ["--cloud", "run", "--detached"])
+        self.assertEqual(args[:3], ["--cloud", "run", "-d"])
         self.assertEqual(args[args.index("--ttl") + 1], "8h")
         self.assertEqual(args[args.index("--on-timeout") + 1], "stop")
         self.assertNotIn("--cpus", args); self.assertNotIn("--memory", args)
@@ -787,7 +792,7 @@ class CLI(unittest.TestCase):
 
     def test_cloud_dry_run_prints_the_cloud_run(self):
         out = self.cli("create", "team", "--no-copy", "--cloud", "--plugins", "none", "--dry-run").stdout
-        self.assertIn(" --cloud run --detached --name team --ttl 8h --on-timeout stop ", out)
+        self.assertIn(" --cloud run -d --name team --ttl 8h --on-timeout stop ", out)
         self.assertEqual(self.calls(everything=True), [])
 
     def test_create_checks_the_selected_backend_only_and_before_any_mutation(self):
@@ -920,7 +925,7 @@ class CLI(unittest.TestCase):
         self.cli("create", "team", "--no-copy", "--cloud", "--plugins", "none"); self.log.unlink()
         self.cli("shell", "team", "true")
         self.assertEqual([c["args"][:3] for c in self.calls()][:2],
-                         [["--cloud", "run", "--detached"], ["--cloud", "exec", "-i"]])
+                         [["--cloud", "run", "-d"], ["--cloud", "exec", "-i"]])
         self.log.unlink()
         self.env["FAKE_SBX_CLOUD_RUNNING"] = "team"
         self.cli("shell", "team", "true")
@@ -932,7 +937,7 @@ class CLI(unittest.TestCase):
         result = self.cli("exec", "team", "cat", "/workspace/marker")      # stopped, so resumed first
         self.assertEqual(result.stdout, "survived\n")
         self.assertIn("Resuming team", result.stderr)
-        self.assertTrue(any(c["args"][1:3] == ["run", "--detached"] for c in self.calls()))
+        self.assertTrue(any(c["args"][1:3] == ["run", "-d"] for c in self.calls()))
         result = self.cli("shell", "--with-sudo", "team", "true")
         self.assertEqual(result.stdout, "survived\n")
         self.assertIn("sudo is already available", result.stderr)
@@ -953,7 +958,7 @@ class CLI(unittest.TestCase):
         self.sandboxes("box", "loose")            # exists locally, never registered
         result = self.cli("create", "loose", "--no-copy", "--plugins", "none", ok=False)
         self.assertIn("loose already exists locally (not made by boxen)", result.stderr)
-        self.assertFalse(any(c["args"][1:3] == ["run", "--detached"] for c in self.calls()))
+        self.assertFalse(any(c["args"][1:3] == ["run", "-d"] for c in self.calls()))
 
     def test_host_resolved_secrets_are_refused_on_cloud_before_any_call(self):
         self.cli("create", "team", "--no-copy", "--cloud", "--plugins", "none"); self.log.unlink()
@@ -984,6 +989,17 @@ class CLI(unittest.TestCase):
         self.log.unlink()
         self.assertIn("Cloud", self.cli("ls").stdout)
 
+    def test_bulk_commands_read_either_sbx_listing_shape(self):
+        self.cli("create", "local1", "--no-copy", "--plugins", "none")
+        self.cli("create", "team", "--no-copy", "--cloud", "--plugins", "none")
+        self.env["FAKE_SBX_RUNNING"] = "local1"; self.env["FAKE_SBX_CLOUD_RUNNING"] = "team"
+        for wrapped in ("", "1"):                                # sbx 0.48, then 0.47
+            with self.subTest(wrapped=wrapped):
+                self.env["FAKE_LS_WRAPPED"] = wrapped; self.log.unlink()
+                self.cli("kill-all")
+                stops = [c["args"] for c in self.calls() if "stop" in c["args"]]
+                self.assertIn(["stop", "local1"], stops); self.assertIn(["--cloud", "stop", "team"], stops)
+
     def test_bulk_commands_skip_a_backend_that_cannot_be_listed(self):
         self.cli("create", "local1", "--no-copy", "--plugins", "none")
         self.cli("create", "team", "--no-copy", "--cloud", "--plugins", "none"); self.log.unlink()
@@ -1009,7 +1025,7 @@ class CLI(unittest.TestCase):
         self.assertEqual(code, 0, output)
         calls = self.calls()
         secret = next(i for i, c in enumerate(calls) if c["args"][1:3] == ["secret", "set"])
-        run = next(i for i, c in enumerate(calls) if c["args"][1:3] == ["run", "--detached"])
+        run = next(i for i, c in enumerate(calls) if c["args"][1:3] == ["run", "-d"])
         self.assertLess(secret, run)
         self.assertEqual(calls[secret]["args"], ["--cloud", "secret", "set", "--sandbox", "team", "github"])
         self.assertEqual(base64.b64decode(calls[secret]["stdin_b64"]).decode(), "github_pat_fake")
@@ -1164,7 +1180,7 @@ class CLI(unittest.TestCase):
         self.cli("net", "team", "-l")
         self.assertEqual(runs(), [])                         # listing never starts it
         self.cli("net", "team")                              # reopening resumes it first
-        self.assertEqual(runs(), [["--cloud", "run", "--detached", "--name", "team"]])
+        self.assertEqual(runs(), [["--cloud", "run", "-d", "--name", "team"]])
         self.assertEqual(masters(), 2)
         self.log.unlink()
         self.cli("net", "team", "-r", "3000")
@@ -1175,7 +1191,7 @@ class CLI(unittest.TestCase):
         self.assertEqual(masters(), 2)
         del self.env["FAKE_RUN_FAIL"]
         self.cli("net", "team", "3001")
-        self.assertEqual(runs(), [["--cloud", "run", "--detached", "--name", "team"]] * 2)
+        self.assertEqual(runs(), [["--cloud", "run", "-d", "--name", "team"]] * 2)
         self.assertEqual([a[a.index("-L") + 1] for a in self.control("forward")][-1], "127.0.0.1:3001:127.0.0.1:3001")
 
     def test_stop_delete_and_kill_all_close_the_tunnel(self):

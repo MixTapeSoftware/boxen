@@ -51,7 +51,7 @@ wait_for() {
   done
   say "FAIL $label (not within ${seconds}s)"; failed=1; return 1
 }
-status_is() { "$sbx" --cloud ls --json | jq -e --arg n "$name" --arg s "$1" '.sandboxes[] | select(.name == $n) | .status == $s'; }
+status_is() { "$sbx" --cloud ls --json | jq -e --arg n "$name" --arg s "$1" '(.sandboxes? // .)[] | select(.name == $n) | .status == $s'; }
 cleanup() {
   [[ -S "$sock" ]] && ssh -S "$sock" -O exit "$id@sbx_cloud" >/dev/null 2>&1
   if [[ "$created" != 1 ]]; then
@@ -71,7 +71,7 @@ for tool in jq ssh curl ss; do command -v "$tool" >/dev/null || { echo "Install 
 # Never adopt, and so never remove, a sandbox this run did not create; a
 # listing that fails is not the same as the name being free.
 if ! listing="$("$sbx" --cloud ls --json)"; then echo "sbx --cloud ls failed; is sbx logged in?" >&2; exit 2; fi
-if printf '%s' "$listing" | jq -e --arg n "$name" 'any(.sandboxes[]; .name == $n)' >/dev/null; then
+if printf '%s' "$listing" | jq -e --arg n "$name" 'any((.sandboxes? // .)[]; .name == $n)' >/dev/null; then
   echo "A cloud sandbox named $name already exists; remove it or pass another name" >&2; exit 2
 fi
 trap cleanup EXIT
@@ -82,11 +82,11 @@ record 'host' uname -sm
 #    "volume@1" fallback or template-bake message is what we want recorded.
 say "=== 1. create $name from $workload with --ttl 1h --on-timeout stop"
 check 'create accepts --on-timeout stop' \
-  "$sbx" --cloud run --detached --name "$name" --ttl 1h --on-timeout stop "$workload" || exit 1
+  "$sbx" --cloud run -d --name "$name" --ttl 1h --on-timeout stop "$workload" || exit 1
 created=1
 wait_for 'sandbox running' 900 status_is running
-record 'sandbox row' sh -c "$sbx --cloud ls --json | jq -c --arg n '$name' '.sandboxes[] | select(.name == \$n)'"
-id="$("$sbx" --cloud ls --json | jq -r --arg n "$name" '.sandboxes[] | select(.name == $n) | .id // .sandbox_id // empty')"
+record 'sandbox row' sh -c "$sbx --cloud ls --json | jq -c --arg n '$name' '(.sandboxes? // .)[] | select(.name == \$n)'"
+id="$("$sbx" --cloud ls --json | jq -r --arg n "$name" '(.sandboxes? // .)[] | select(.name == $n) | .id // .sandbox_id // empty')"
 say "sandbox id: ${id:-<not found in ls --json; see the row above>}"
 record 'ttl after create' "$sbx" --cloud ttl --json "$name"
 check 'write a marker file' "$sbx" --cloud exec "$name" sh -c 'echo marker > /home/agent/probe-marker'
@@ -125,6 +125,6 @@ expect 'marker survives a resume' marker "$sbx" --cloud exec "$name" cat /home/a
 wait_for 'sandbox running again' 300 status_is running
 record 'ttl after resume' "$sbx" --cloud ttl --json "$name"
 if [[ -z "$id" ]]; then say "FAIL same sandbox id after resume (no id was read at create)"; failed=1; else
-expect 'same sandbox id after resume' "$id" sh -c "$sbx --cloud ls --json | jq -r --arg n '$name' '.sandboxes[] | select(.name == \$n) | .id // .sandbox_id // empty'"
+expect 'same sandbox id after resume' "$id" sh -c "$sbx --cloud ls --json | jq -r --arg n '$name' '(.sandboxes? // .)[] | select(.name == \$n) | .id // .sandbox_id // empty'"
 fi
 exit "$failed"

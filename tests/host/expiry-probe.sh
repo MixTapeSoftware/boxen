@@ -57,7 +57,7 @@ wait_for() {
 row() {
   local out
   out="$("$sbx" --cloud ls --json)" || return 1
-  printf '%s' "$out" | jq -c --arg n "$name" '.sandboxes[] | select(.name == $n)'
+  printf '%s' "$out" | jq -c --arg n "$name" '(.sandboxes? // .)[] | select(.name == $n)'
 }
 status_is() { [[ "$(row | jq -r '.status')" == "$1" ]]; }
 expires_at() { "$sbx" --cloud ttl --json "$name" | jq -r '.expires_at // empty'; }
@@ -100,7 +100,7 @@ record 'sbx version' "$sbx" version
 
 say "=== 1. create $name from $workload with --ttl $ttl --on-timeout stop"
 check "create accepts --ttl $ttl --on-timeout stop" \
-  "$sbx" --cloud run --detached --name "$name" --ttl "$ttl" --on-timeout stop "$workload" || exit 1
+  "$sbx" --cloud run -d --name "$name" --ttl "$ttl" --on-timeout stop "$workload" || exit 1
 created=1
 wait_for 'sandbox running' 900 status_is running
 record 'row after create' row

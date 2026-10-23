@@ -26,7 +26,7 @@ for agent in shell claude codex grok; do
   [[ "$agent" == shell ]] || kit=(--kit "$(mixin_ref "$agent")")
   say "=== 2. $name: Boxen's workload${kit[1]:+ with ${kit[1]}}"
   create_sandbox "$name" -- sbx create --name "$name" --cpus 4 --memory 4g --env "BOXEN_AGENT=$agent" ${kit[@]+"${kit[@]}"} ./v3/boxen
-  must "start $name" sbx run --detached --name "$name"
+  must "start $name" sbx run -d --name "$name"
   expect "BOXEN_AGENT reaches $name" "$agent" sbx exec "$name" printenv BOXEN_AGENT
   check "the agent can write its workspace in $name" sbx exec "$name" sh -c 'test -w /home/agent/workspace'
   check "Boxen's checks pass in $name" sbx exec "$name" env "BOXEN_AGENT=$agent" bash /usr/local/share/boxen/check.sh

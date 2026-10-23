@@ -24,7 +24,7 @@ say "cold create took $(( $(date +%s) - started )) s"
 record 'image sizes' sh -c '"$0" image ls --format "{{.Repository}}:{{.Tag}} {{.Size}}" | grep -i -e sbx -e boxen || true' "$DOCKER"
 
 say "=== 2. every tool"
-must 'start v3-tools' sbx run --detached --name v3-tools
+must 'start v3-tools' sbx run -d --name v3-tools
 check "Boxen's checks pass" sbx exec v3-tools env BOXEN_AGENT=claude bash /usr/local/share/boxen/check.sh
 record 'check.sh output' sbx exec v3-tools env BOXEN_AGENT=claude bash /usr/local/share/boxen/check.sh
 check 'stop v3-tools' sbx stop v3-tools

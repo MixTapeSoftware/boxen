@@ -465,7 +465,7 @@ class HostGates(unittest.TestCase):
         fake.write_text(r"""#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FAKE_LOG"
 case "$*" in
-  "run --detached"*) exit "${FAKE_RUN_EXIT:-0}" ;;
+  "run -d"*) exit "${FAKE_RUN_EXIT:-0}" ;;
   *"ls --json"*)
     [[ "${FAKE_LS_EXIT:-0}" == 0 ]] || exit "$FAKE_LS_EXIT"
     [[ ! -e "$FAKE_LS_FAIL_FLAG" ]] || exit 7
@@ -520,7 +520,7 @@ esac
         self.assertFalse(any("existing-box" in call and "ls" not in call for call in calls), calls)
 
     def test_a_failed_listing_is_not_a_free_name(self):
-        result, calls = self.gate('claim fresh-box cloud; check dependent "$SBX_BIN" --cloud run --detached --name fresh-box x', FAKE_LS_EXIT="7")
+        result, calls = self.gate('claim fresh-box cloud; check dependent "$SBX_BIN" --cloud run -d --name fresh-box x', FAKE_LS_EXIT="7")
         self.assertEqual(result.returncode, 1)
         self.assertIn("FAIL claim fresh-box (sbx ls failed)", result.stdout)
         self.assertFalse(any("run" in call for call in calls), calls)
@@ -534,9 +534,9 @@ esac
         self.assertFalse(any("rm" in call and ("other-box" in call or "existing-box" in call) for call in calls), calls)
 
     def test_create_sandbox_claims_creates_and_registers_for_cleanup(self):
-        result, calls = self.gate('create_sandbox new-box cloud -- sh -c \'echo new-box >> "$FAKE_EXTRA"; "$SBX_BIN" --cloud run --detached --name new-box x\'; check after true')
+        result, calls = self.gate('create_sandbox new-box cloud -- sh -c \'echo new-box >> "$FAKE_EXTRA"; "$SBX_BIN" --cloud run -d --name new-box x\'; check after true')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("--cloud run --detached --name new-box x", calls); self.assertIn("--cloud rm --force new-box", calls)
+        self.assertIn("--cloud run -d --name new-box x", calls); self.assertIn("--cloud rm --force new-box", calls)
         self.log.unlink(); self.extra.unlink()
         result, calls = self.gate('create_sandbox new-box -- false; check after true')
         self.assertEqual(result.returncode, 1)
@@ -581,7 +581,7 @@ esac
         result, calls = self.gate('borrow old-box; echo "borrowed=$GATE_BORROWED"')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertIn("PASS start old-box", result.stdout); self.assertIn("borrowed=1", result.stdout)
-        self.assertIn("run --detached --name old-box", calls)
+        self.assertIn("run -d --name old-box", calls)
         self.assertFalse(any("rm" in call for call in calls), calls)
         # A failed start ends the gate: a later sbx exec would start it unrecorded.
         self.log.unlink()

@@ -25,7 +25,7 @@ cleanup() {
   done
   if [[ -n "$fixture" ]]; then rm -rf "$fixture"; fi
 }
-row() { sbx --cloud ls --json | jq -c --arg n "$1" '.sandboxes[] | select(.name == $n)'; }
+row() { sbx --cloud ls --json | jq -c --arg n "$1" '(.sandboxes? // .)[] | select(.name == $n)'; }
 status_is() { [[ "$(row "$1" | jq -r .status)" == "$2" ]]; }
 id_of() { row "$1" | jq -r '.id // .sandbox_id // empty'; }
 sha() { if command -v sha256sum >/dev/null; then sha256sum "$1"; else shasum -a 256 "$1"; fi | cut -d' ' -f1; }
