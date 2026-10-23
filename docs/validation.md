@@ -146,3 +146,66 @@ covers the first two.
   template-export wrapper until that behavior is proven.
 
 Nothing was published to a registry or created in Docker Cloud.
+
+## 2026-10-21 v3 kits
+
+The v3 plan's host gates run on a machine with sbx and Docker; each writes
+its log, with the sbx version, Docker server version and host, to
+`local/validation/<gate>.log` there. This section records what has passed and
+what is still to run. Earlier passes do not count once the image or the
+source changes: the cutover's acceptance run repeats every gate on the final
+revision.
+
+Pins:
+
+- Base image `docker/sandbox-templates:shell-docker@sha256:b178ca62ec2e79af2a044e3ec321bdb72188690e1c15d573ea5524b397554d3d`
+  (Ubuntu 26.04), resolved from the registry on 2026-10-22; `compose-gate.sh`
+  checks that the tag still resolves to it.
+- Docker's agent mixins, by tag and index digest in `lib/pins.sh`: Claude
+  2.1.267, Codex 0.155.1 and Grok 1.0.34, the newest that sbx v0.47.0 reads.
+
+Passed on the host:
+
+- 2026-10-22, sbx v0.47.0: the redesigned workload plus
+  `sbx-kit-claude-mixin:2.1.267` assembled with no file collisions, and
+  `claude --version` printed 2.1.267 (the smoke test in PR #4).
+- 2026-10-23T00:52Z: `tests/host/compose-gate.sh`, 55 checks, 0 failed. The
+  workload alone and with each agent mixin: tools on PATH, no standing sudo,
+  the environment line once, a clean `dpkg --audit` and `apt-get check`, and
+  each agent's `--version`.
+- 2026-10-23T01:03Z: `tests/host/cloud-compose-gate.sh`, 21 checks, 0 failed.
+  In Docker Cloud: sudo kept, a stop and resume with the marker, an SSH
+  forward answering `200`, and a real five-minute expiry that stopped and
+  kept the sandbox with its id.
+
+Still to run (the command, then what it records):
+
+- `bash tests/host/tools-gate.sh`: every baked tool, the cold build time,
+  the image size and the rebuild time after a content change.
+- `bash tests/host/mixins-gate.sh`: every Boxen mixin at once on Claude, RTK
+  on Codex, the others on Grok, and a restart.
+- `bash tests/host/launcher-gate.sh` (optionally with `BOXEN_OLD_SANDBOX`):
+  the launcher end to end, including whether sbx v0.47.0's `kit validate`
+  accepts v3 directories.
+- `bash tests/host/cloud-gate.sh` (`GH_TEST_TOKEN`,
+  `BOXEN_TEST_PRIVATE_REPO`, `BOXEN_CLOUD_POLICY_NOTE`; optionally
+  `BOXEN_TEST_TS_KEY`): the upload time, the policy note and egress results,
+  Docker inside a cloud box, the `sbx --cloud ttl +Nm` extension, and whether
+  a secret set after creation applies live. Until it reports, `boxen env`
+  says a cloud secret applies at the next start.
+- `bash tests/host/expiry-gate.sh`: a real expiry of the launcher's composed
+  Claude and its own shell box, then a resume through `./boxen`.
+- `bash tests/host/smoke-gate.sh`: each agent with and without RTK, and the
+  Tailscale restart check.
+- `bash tests/host/update-gate.sh`: `boxen update` keeps every installed
+  package on Claude and Codex boxes.
+- `bash tests/host/day2-probe.sh start`, then `check` a day later: whether a
+  stopped cloud box can be resumed past Docker's 24-hour cap. Its result file
+  is an input to the cutover's acceptance run.
+- `bash tests/host/acceptance-gate.sh`, last, on a clean committed revision:
+  every gate above once, with the revision, the base and mixin digests and the
+  day-2 result. The v2 kits are removed only after it passes; its summary goes
+  here, and the README's retention sentence is written from the day-2 result.
+
+Not run: Bash 3.2 (no Bash 3.2 binary in the development container; set
+`TEST_BASH` to one and run `bash tests/run.sh`), arm64 hosts and macOS hosts.
