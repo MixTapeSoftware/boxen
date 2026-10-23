@@ -5,6 +5,9 @@ boxen_path_prepend "$HOME/.local/share/mise/shims"
 boxen_path_prepend "$HOME/.local/bin"
 export PATH
 export MISE_GIX=false
+# gh stack is pinned in the image, so its upgrade notices would only ask for
+# an upgrade gh refuses.
+export GH_STACK_NO_UPDATE_NOTIFIER=1
 # Trust mise config anywhere in the workspace, including repositories copied or
 # cloned there after setup, so mise never stops to ask for mise trust.
 export MISE_TRUSTED_CONFIG_PATHS=/home/agent/workspace

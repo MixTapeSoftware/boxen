@@ -35,8 +35,11 @@ for lsp in lua-language-server gopls pyright-langserver typescript-language-serv
   bash-language-server elixir-ls; do
   check "Mason $lsp" test -x "$HOME/.local/share/nvim/mason/bin/$lsp"
 done
+check 'gh stack' gh stack --version
 check 'botfight skill for Claude Code' test -f /etc/claude-code/.claude/skills/botfight/SKILL.md
 check 'botfight skill for Codex and Grok' test -f "$HOME/.agents/skills/botfight/SKILL.md"
+check 'gh-stack skill for Claude Code' test -f /etc/claude-code/.claude/skills/gh-stack/SKILL.md
+check 'gh-stack skill for Codex and Grok' test -f "$HOME/.agents/skills/gh-stack/SKILL.md"
 # Only what a mixin adds at create depends on the plugins chosen.
 selected=",${BOXEN_PLUGINS:-},"
 if [[ "$selected" == *,tailscale,* ]]; then

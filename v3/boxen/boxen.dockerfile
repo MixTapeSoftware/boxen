@@ -38,9 +38,13 @@ COPY --chown=root:root scripts/chromium.sh /usr/local/share/boxen/chromium.sh
 RUN bash /usr/local/share/boxen/chromium.sh
 COPY --chown=root:root scripts/nvchad.sh scripts/lazy-check.lua /usr/local/share/boxen/
 RUN bash /usr/local/share/boxen/nvchad.sh
+COPY --chown=root:root scripts/gh-stack.sh /usr/local/share/boxen/gh-stack.sh
+RUN bash /usr/local/share/boxen/gh-stack.sh
 # Every skill on the skills repository's main branch, such as botfight. The
 # build checks main each time, and a new commit there rebuilds only from here on.
 USER root
+# gh stack's own agent skill, from the commit its pinned release was built from.
+ADD https://github.com/github/gh-stack.git#29a36d314be664583705f18e41cebdf2b61ad514 /usr/local/share/boxen/gh-stack
 ADD https://github.com/MixTapeSoftware/skills.git#main /usr/local/share/boxen/skills
 COPY scripts/skills-install.sh /usr/local/share/boxen/skills-install.sh
 RUN bash /usr/local/share/boxen/skills-install.sh
