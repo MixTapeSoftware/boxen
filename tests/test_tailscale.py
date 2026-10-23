@@ -12,6 +12,8 @@ CONTROL = ROOT / "kits/tailscale/files/home/.local/share/boxen/tailscale-control
 
 
 class TailscaleControl(unittest.TestCase):
+    control = CONTROL
+
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="boxen-tailscale-test-")
         self.addCleanup(temp.cleanup)
@@ -66,7 +68,7 @@ print(path)
 
     def run_control(self, *args, stdin="", ok=True):
         result = subprocess.run(
-            [os.environ.get("TEST_BASH", "bash"), str(CONTROL), *args],
+            [os.environ.get("TEST_BASH", "bash"), str(self.control), *args],
             env=self.env, input=stdin, text=True, capture_output=True, timeout=10,
         )
         if ok:
@@ -159,6 +161,11 @@ print(path)
         result = self.run_control("serve", "supabase", ok=False)
         self.assertEqual(result.returncode, 19)
         self.assertEqual(len(self.calls("serve")), 2)
+
+
+class TailscaleControlV3(TailscaleControl):
+    """The v3 image's copy must behave the same as the v2 kit's."""
+    control = ROOT / "v3/boxen/scripts/tailscale-control.sh"
 
 
 if __name__ == "__main__":

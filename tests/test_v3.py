@@ -284,6 +284,111 @@ class BoxenWorkload(ScriptCase):
         self.assertIn(GUEST + "browser-check.py", text)
         self.assertIn(GUEST + "lazy-check.lua", text)
 
+class BakedTools(ScriptCase):
+    ROOT_STEPS = ["core-root.sh", "chromium-root.sh", "tailscale-install.sh"]
+    USER_STEPS = ["core-user.sh", "fzf-bat.sh", "just.sh", "glow.sh", "mermaid-ascii.sh", "overmind.sh",
+                  "cubic.sh", "1pass.sh", "rtk-install.sh", "chromium.sh", "nvchad.sh"]
+
+    def test_dockerfile_runs_every_installer_in_order(self):
+        text = (V3 / "boxen/boxen.dockerfile").read_text()
+        runs = re.findall(r"^RUN bash " + re.escape(GUEST) + r"([A-Za-z0-9_.-]+)$", text, re.M)
+        self.assertEqual(runs, self.ROOT_STEPS + self.USER_STEPS + ["skills-install.sh"])
+        self.assertLess(text.index("tailscale-install.sh"), text.index("USER agent"))
+        self.assertGreater(text.index("RUN bash " + GUEST + "nvchad.sh"), text.index("USER agent"))
+
+    def test_botfight_comes_from_the_skills_main_branch_after_the_slow_steps(self):
+        # A new commit on main rebuilds from this step on, so it sits after the installers.
+        text = (V3 / "boxen/boxen.dockerfile").read_text()
+        add = text.index("ADD https://github.com/MixTapeSoftware/skills.git#main /usr/local/share/boxen/skills\n")
+        self.assertGreater(add, text.index("RUN bash " + GUEST + "nvchad.sh"))
+        self.assertLess(add, text.index("RUN bash " + GUEST + "skills-install.sh"))
+        self.assertEqual(text[:add].rsplit("USER ", 1)[1].split("\n")[0], "root")
+
+    def test_skills_install_links_every_skill_where_each_agent_reads_it(self):
+        source = Path(tempfile.mkdtemp(dir=self.directory))
+        for name in ("botfight", "other"):
+            (source / name).mkdir()
+            (source / name / "SKILL.md").write_text(f"---\nname: {name}\n---\n")
+        (source / "README.md").write_text("not a skill\n")
+        claude, shared = self.directory / "etc/claude-code/.claude/skills", self.directory / "home/.agents/skills"
+        env = dict(os.environ, BOXEN_SKILLS_SRC=str(source), BOXEN_CLAUDE_SKILLS=str(claude),
+                   BOXEN_AGENT_HOME=str(self.directory / "home"), BOXEN_AGENT_OWNER=f"{os.getuid()}:{os.getgid()}")
+        for _ in range(2):
+            result = subprocess.run(["bash", str(SCRIPTS / "skills-install.sh")], env=env, capture_output=True, text=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
+        for target in (claude, shared):
+            self.assertEqual(sorted(p.name for p in target.iterdir()), ["botfight", "other"], target)
+            self.assertTrue((target / "botfight/SKILL.md").is_file(), target)
+            self.assertEqual(sorted(p.name for p in (target / "botfight").iterdir()), ["SKILL.md"])
+        script = (SCRIPTS / "skills-install.sh").read_text()
+        # Claude Code's system-wide folder, and the one Codex and Grok both read.
+        self.assertIn("/etc/claude-code/.claude/skills", script)
+        self.assertIn('/.agents/skills', script)
+        self.assertNotIn("/etc/codex/skills", script)
+
+    def test_check_script_checks_the_botfight_skill_for_every_agent(self):
+        text = (SCRIPTS / "check.sh").read_text()
+        self.assertIn("/etc/claude-code/.claude/skills/botfight/SKILL.md", text)
+        self.assertIn("$HOME/.agents/skills/botfight/SKILL.md", text)
+        self.assertNotIn("/etc/codex/skills", text)
+
+    def test_pinned_downloads_are_checksummed(self):
+        for script in SCRIPTS.glob("*.sh"):
+            text = script.read_text()
+            with self.subTest(script=script.name):
+                self.assertNotIn("@latest", text)
+                self.assertNotIn("releases/latest", text)
+                if re.findall(r'curl -fsSL "[^"]+" -o', text):
+                    self.assertIn("sha256sum -c", text)
+
+    def test_only_the_known_vendor_installers_are_piped_to_a_shell(self):
+        # cubic's and RTK's installers are unpinned on purpose, as in v2; any
+        # other download piped to a shell runs unverified code at build time.
+        piped = sorted(s.name for s in SCRIPTS.glob("*.sh")
+                       if re.search(r"curl [^|\n]*\|\s*(?:\w+=\S+\s+)*(?:ba)?sh\b", s.read_text()))
+        self.assertEqual(piped, ["cubic.sh", "rtk-install.sh"])
+
+    def test_an_installer_step_copies_only_what_its_script_uses(self):
+        # Runtime-only files come with the last COPY, so editing one never
+        # rebuilds an installer step.
+        text = (V3 / "boxen/boxen.dockerfile").read_text()
+        for files, script in re.findall(r"^COPY (?:--chown=\S+ )?((?:scripts/\S+ )+)\S+\nRUN bash " + re.escape(GUEST) + r"(\S+)$", text, re.M):
+            body = (SCRIPTS / script).read_text()
+            for extra in (f[len("scripts/"):] for f in files.split() if f != "scripts/" + script):
+                with self.subTest(step=script, file=extra):
+                    self.assertIn(extra, body)
+
+    def test_nvchad_steps_are_time_limited_and_find_the_plugin_check(self):
+        script = (SCRIPTS / "nvchad.sh").read_text()
+        for line in script.replace("\\\n", " ").splitlines():
+            with self.subTest(line=line):
+                self.assertNotRegex(line, r'^\s*(curl|nvim|npm|git clone) ')
+        self.assertIn(GUEST + "lazy-check.lua", script)
+
+    def test_rtk_install_only_installs_the_binary(self):
+        text = (SCRIPTS / "rtk-install.sh").read_text()
+        self.assertNotIn("rtk init", text)
+        self.assertNotIn("claude-rtk.json", text)
+
+    def test_runtime_hosts_are_the_union_of_the_v2_kits(self):
+        # Exactly the union: a host added or dropped here is a change to the
+        # sandbox's network boundary and has to be made on purpose.
+        union = set()
+        for kit in ("core", "cubic", "nvchad", "chromium"):
+            union |= set(yaml.safe_load((ROOT / "kits" / kit / "spec.yaml").read_text())["permissions"]["network"]["allow"])
+        self.assertEqual(set(allowed("boxen")), union)
+
+    def test_check_script_checks_every_baked_tool_unconditionally(self):
+        text = (SCRIPTS / "check.sh").read_text()
+        for binary in ("fzf", "bat", "just", "glow", "mermaid-ascii", "overmind", "rtk", "nvim", "op", "tailscale",
+                       "google-chrome", "chromedriver", "cubic"):
+            self.assertRegex(text, r"\b" + re.escape(binary) + r"\b")
+        head = text.split("BOXEN_PLUGINS")[0]
+        for binary in ("fzf", "nvim", "op", "google-chrome"):
+            self.assertIn(binary, head)
+        self.assertIn("BOXEN_AGENT", text)
+
+
 class HostGates(unittest.TestCase):
     def setUp(self):
         self.bin = Path(tempfile.mkdtemp()); self.log = self.bin / "calls"
