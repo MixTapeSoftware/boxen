@@ -476,24 +476,27 @@ in check:
    the dev server and anything the agent starts listening on. Add the
    following to your policy (`./install` prints it too). It is an addition to
    your existing rules, not a replacement for them: merge the `tagOwners` and
-   `grants` into yours. Rules are additive, so any other rule that reaches
+   the acl into yours. Rules are additive, so any other rule that reaches
    `tag:boxen`, such as Tailscale's default allow-all, still applies and
-   should go. The result grants only the served ports, and nothing from the
+   should go. The result allows only the served ports, and nothing from the
    sandbox outward:
 
    ~~~jsonc
    {
      "tagOwners": {"tag:boxen": ["autogroup:admin"]},
-     "grants": [
+     "acls": [
        {
+         "action": "accept", "proto": "tcp",
          "src": ["autogroup:member"],
-         "dst": ["tag:boxen"],
-         "ip": ["tcp:443", "tcp:4410", "tcp:4431", "tcp:5432", "tcp:5433", "tcp:5434", "tcp:8443"]
+         "dst": ["tag:boxen:443,4410,4431,5432,5433,5434,8443"]
        }
      ]
      // No "funnel" nodeAttrs entry may target tag:boxen or "*".
    }
    ~~~
+
+   A policy written with `grants` takes the same rule as
+   `{"src": ["autogroup:member"], "dst": ["tag:boxen"], "ip": ["tcp:443", …]}`.
 
    If someone could add a node from Tailscale's side, your access rules come
    from the same servers; [Tailnet Lock](https://tailscale.com/kb/1226/tailnet-lock)

@@ -87,11 +87,14 @@ class Install(unittest.TestCase):
         result = self.install("--no-chadmux")
         self.assertIn("Add this to your tailnet policy", result.stdout)
         self.assertIn("not a replacement", result.stdout)
+        # The acls form: every policy file has that section, grants is newer.
         for line in ('"tagOwners": {"tag:boxen": ["autogroup:admin"]}',
-                     '"src": ["autogroup:member"]', '"dst": ["tag:boxen"]',
-                     '"tcp:443", "tcp:4410", "tcp:4431", "tcp:5432", "tcp:5433", "tcp:5434", "tcp:8443"',
+                     '"acls": [', '"action": "accept", "proto": "tcp"',
+                     '"src": ["autogroup:member"]',
+                     '"dst": ["tag:boxen:443,4410,4431,5432,5433,5434,8443"]',
                      "funnel"):
             self.assertIn(line, result.stdout)
+        self.assertNotIn("grants", result.stdout)
 
     def test_keeps_a_file_in_the_way(self):
         target = self.home / ".local/bin/boxen"
