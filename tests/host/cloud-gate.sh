@@ -7,7 +7,7 @@
 #   GH_TEST_TOKEN            a fine-grained token made for this run; revoke it after
 #   BOXEN_TEST_PRIVATE_REPO  owner/name of a private repository it can read
 #   BOXEN_CLOUD_POLICY_NOTE  the account's network default, for the egress log
-#   BOXEN_TEST_TS_KEY        optional: a tagged, ephemeral Tailscale auth key
+#   BOXEN_TEST_TS_KEY        optional: an ephemeral Tailscale auth key tagged tag:boxen
 # The token and key travel on stdin only. Run from anywhere:
 #   bash tests/host/cloud-gate.sh
 source "$(dirname "$0")/lib.sh"

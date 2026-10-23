@@ -26,6 +26,8 @@ class TailscaleControl(unittest.TestCase):
             FAKE_TAILSCALE_LOG=str(self.log),
             FAKE_TAILSCALE_RUNTIME=str(self.directory),
             FAKE_READY="1", FAKE_UP_EXIT="0", FAKE_SERVE_FAIL_AT="0",
+            # What the control plane says about this node after `up`.
+            FAKE_SELF_TAGS="tag:boxen", FAKE_SELF_FUNNEL_CAP="",
             # Never read a real guest's preset when the tests run inside a sandbox.
             BOXEN_SERVE_PRESET_FILE=str(self.directory / "serve-preset"),
         )
@@ -42,11 +44,21 @@ for arg in args:
         entry["key_mode"] = stat.S_IMODE(key.stat().st_mode)
 with log.open("a") as output:
     output.write(json.dumps(entry) + "\\n")
+if args[0] == "status" and "--self" in args:
+    me = {"HostName": "test-node", "DNSName": "test-node.tail.ts.net."}
+    if os.environ["FAKE_SELF_TAGS"]:
+        me["Tags"] = os.environ["FAKE_SELF_TAGS"].split(",")
+    if os.environ["FAKE_SELF_FUNNEL_CAP"]:
+        me["CapMap"] = {os.environ["FAKE_SELF_FUNNEL_CAP"]: None}
+    print(json.dumps({"BackendState": "Running", "Self": me}))
+    sys.exit(0)
 if args[0] == "status":
     print('{"BackendState":"Running"}')
     sys.exit(0 if os.environ["FAKE_READY"] == "1" else 1)
 if args[0] == "up":
     sys.exit(int(os.environ["FAKE_UP_EXIT"]))
+if args[0] == "logout":
+    sys.exit(0)
 if args[0] == "serve":
     count = 1 + sum(c["args"][0] == "serve" for c in prior)
     sys.exit(19 if count == int(os.environ["FAKE_SERVE_FAIL_AT"]) else 0)
@@ -116,6 +128,8 @@ print(path)
         self.assertNotIn(key.strip(), json.dumps(self.calls()) + result.stdout + result.stderr)
         self.assertEqual(list(self.directory.glob("join.*")), [])
         self.assertIn("--hostname=test-node", call["args"])
+        # Tagged, so the node never carries a user's identity or Funnel grant.
+        self.assertIn("--advertise-tags=tag:boxen", call["args"])
         # The agent user must not be able to reconfigure the node.
         self.assertFalse(any(a.startswith("--operator") for a in call["args"]))
 
@@ -133,8 +147,37 @@ print(path)
     def test_browser_join_applies_selected_preset_without_auth_key(self):
         self.env["BOXEN_SERVE_PRESET"] = "supabase"
         self.run_control("join", "test-node")
-        self.assertEqual(self.calls("up"), [{"args": ["up", "--hostname=test-node"]}])
+        self.assertEqual(self.calls("up"), [{"args": ["up", "--hostname=test-node", "--advertise-tags=tag:boxen"]}])
         self.assertEqual(len(self.calls("serve")), 7)
+
+    def assert_join_refused(self, message):
+        self.env["BOXEN_SERVE_PRESET"] = "supabase"
+        result = self.run_control("join", "test-node", ok=False)
+        self.assertIn(message, result.stderr)
+        # The node leaves the tailnet rather than staying joined in a state
+        # the policy did not intend; nothing is served first.
+        self.assertEqual(len(self.calls("logout")), 1)
+        self.assertEqual(self.calls("serve"), [])
+        self.assertLess(self.calls().index(self.calls("up")[0]), self.calls().index(self.calls("logout")[0]))
+
+    def test_untagged_node_is_logged_out_and_refused(self):
+        # A browser login by a user who does not own tag:boxen, or a key
+        # without the tag, would give the agent that user's whole tailnet.
+        self.env["FAKE_SELF_TAGS"] = ""
+        self.assert_join_refused("tag:boxen")
+
+    def test_node_with_a_different_tag_is_refused(self):
+        self.env["FAKE_SELF_TAGS"] = "tag:server"
+        self.assert_join_refused("tag:boxen")
+
+    def test_node_granted_funnel_is_logged_out_and_refused(self):
+        # Funnel is granted by a nodeAttrs entry in the policy; the control
+        # plane announces it as a node capability, in either spelling.
+        for cap in ("funnel", "https://tailscale.com/cap/funnel-ports?ports=443,8443,10000"):
+            with self.subTest(cap=cap):
+                self.setUp()
+                self.env["FAKE_SELF_FUNNEL_CAP"] = cap
+                self.assert_join_refused("Funnel")
 
     def test_single_port_cannot_replace_the_preset(self):
         # The preset owns :443 -> 3000; tailscaled persists serve config, so a

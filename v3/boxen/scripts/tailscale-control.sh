@@ -1,13 +1,21 @@
 #!/usr/bin/env bash
 # Runs as root. Auth keys enter on stdin and are never command arguments.
-# No --operator: the agent user cannot reconfigure the node (exit nodes,
-# Funnel, serve); changes go through boxen, which runs this as root.
+# No --operator: on a local sandbox the agent user cannot reconfigure the
+# node (exit nodes, Funnel, serve); changes go through boxen, which runs
+# this as root. A cloud sandbox keeps sudo, so there the tag and the
+# tailnet policy are the real limits.
 set +x
 set -euo pipefail
 # sudo -n resets the environment on a cloud sandbox; the tailscale mixin
 # records the preset chosen at create in a file.
 preset="${BOXEN_SERVE_PRESET:-$(cat "${BOXEN_SERVE_PRESET_FILE:-/etc/boxen/serve-preset}" 2>/dev/null || true)}"
+# Every node is tagged: a tagged node has no user's identity, so it gets
+# none of the user's access and no Funnel grant aimed at members. The
+# README's policy snippet names this tag.
+tag=tag:boxen
 fail() { printf 'tailscale: %s\n' "$*" >&2; exit 1; }
+# Leave the tailnet rather than stay joined with access the policy did not intend.
+leave() { tailscale logout || true; fail "$@"; }
 wait_for_daemon() {
   local attempt=0
   until tailscale status --json >/dev/null 2>&1; do
@@ -15,6 +23,21 @@ wait_for_daemon() {
     [[ "$attempt" -lt 30 ]] || fail 'Daemon not ready; inspect /var/log/boxen/tailscaled.log'
     sleep 1
   done
+}
+# What the control plane granted this node, after up. The tag check catches
+# a browser login by someone who does not own the tag and a key tagged
+# otherwise; the Funnel check catches a nodeAttrs entry that would let a
+# sudo-capable agent publish the sandbox to the internet.
+verify_node() {
+  local self tags funnel
+  self="$(tailscale status --self --peers=false --json)" || fail 'Could not read the node status'
+  tags="$(printf '%s' "$self" | jq -r '.Self.Tags // [] | .[]')"
+  funnel="$(printf '%s' "$self" | jq -r '.Self.CapMap // {} | keys[]
+    | select(. == "funnel" or startswith("https://tailscale.com/cap/funnel"))')"
+  printf '%s\n' "$tags" | grep -Fxq -- "$tag" ||
+    leave "The node joined without $tag (tags: ${tags:-none}). Log in as an owner of $tag, or use a key tagged $tag."
+  [[ -z "$funnel" ]] ||
+    leave "The tailnet policy grants this node Funnel, which could publish the sandbox to the internet; remove $tag from the funnel nodeAttrs."
 }
 serve() {
   local target="$1" pair src dst
@@ -49,12 +72,13 @@ case "${1:-}" in
       trap 'rm -f "$auth_file"' EXIT
       cat > "$auth_file"
       [[ -s "$auth_file" ]] || fail 'Empty auth key'
-      tailscale up --auth-key="file:$auth_file" --hostname="$hostname"
+      tailscale up --auth-key="file:$auth_file" --hostname="$hostname" --advertise-tags="$tag"
       rm -f "$auth_file"
       trap - EXIT
     elif [[ $# == 0 ]]; then
-      tailscale up --hostname="$hostname"
+      tailscale up --hostname="$hostname" --advertise-tags="$tag"
     else fail 'Use join HOSTNAME [--auth-key-stdin]'; fi
+    verify_node
     # tailscaled keeps serve config in its state, so the preset is applied once.
     if [[ "$preset" == supabase ]]; then serve supabase; fi
     tailscale status
