@@ -393,17 +393,19 @@ class HostGates(unittest.TestCase):
     def setUp(self):
         self.bin = Path(tempfile.mkdtemp()); self.log = self.bin / "calls"
         fake = self.bin / "sbx"
-        # Lists existing-box plus every name in FAKE_EXTRA (id sbx_<name>); ls fails
-        # with FAKE_LS_EXIT, or once the file FAKE_LS_FAIL_FLAG exists.
+        # Lists existing-box plus every "name [status]" line in FAKE_EXTRA (id
+        # sbx_<name>, running unless given); ls prints FAKE_LS_BODY instead when
+        # set, and fails with FAKE_LS_EXIT, or once the file FAKE_LS_FAIL_FLAG exists.
         fake.write_text(r"""#!/usr/bin/env bash
 printf '%s\n' "$*" >> "$FAKE_LOG"
 case "$*" in
   *"ls --json"*)
     [[ "${FAKE_LS_EXIT:-0}" == 0 ]] || exit "$FAKE_LS_EXIT"
     [[ ! -e "$FAKE_LS_FAIL_FLAG" ]] || exit 7
+    [[ -z "${FAKE_LS_BODY:-}" ]] || { printf '%s\n' "$FAKE_LS_BODY"; exit 0; }
     rows='{"name":"existing-box","id":"sbx_x","status":"running"}'
     if [[ -f "$FAKE_EXTRA" ]]; then
-      while read -r n; do [[ -z "$n" ]] || rows="$rows,{\"name\":\"$n\",\"id\":\"sbx_$n\",\"status\":\"running\"}"; done < "$FAKE_EXTRA"
+      while read -r n s; do [[ -z "$n" ]] || rows="$rows,{\"name\":\"$n\",\"id\":\"sbx_$n\",\"status\":\"${s:-running}\"}"; done < "$FAKE_EXTRA"
     fi
     printf '{"sandboxes":[%s]}\n' "$rows" ;;
 esac
@@ -481,6 +483,39 @@ esac
         self.assertEqual(result.returncode, 1)
         self.assertNotIn("PASS after", result.stdout)
         self.assertIn("--cloud rm --force half-box", calls)
+
+    def test_borrow_starts_only_a_listed_stopped_sandbox_and_never_makes_one(self):
+        # sbx run --name with a name that is not listed would make a sandbox.
+        for body, env, failure in (('borrow ghost-box', {}, "FAIL borrow ghost-box (not listed"),
+                                   ('borrow existing-box', {"FAKE_LS_EXIT": "7"}, "FAIL borrow existing-box (sbx ls failed)"),
+                                   ('borrow existing-box', {"FAKE_LS_BODY": "not json"}, "FAIL borrow existing-box (unreadable listing)"),
+                                   ('borrow existing-box', {"FAKE_LS_BODY": '{"sandboxes":[]}'}, "FAIL borrow existing-box (not listed")):
+            with self.subTest(body=body, env=env):
+                if self.log.exists():
+                    self.log.unlink()
+                result, calls = self.gate(body + '; check after true', **env)
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn(failure, result.stdout)
+                self.assertNotIn("PASS after", result.stdout)
+                self.assertFalse(any("run" in call or "rm" in call or "stop" in call for call in calls), calls)
+        # A running sandbox is used as it is; a stopped one is started and marked
+        # so the gate can stop it again. Neither is ever removed.
+        self.log.unlink()
+        result, calls = self.gate('borrow existing-box; echo "borrowed=$GATE_BORROWED"')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("borrowed=0", result.stdout)
+        self.assertFalse(any("run" in call or "rm" in call for call in calls), calls)
+        self.extra.write_text("old-box stopped\n"); self.log.unlink()
+        result, calls = self.gate('borrow old-box; echo "borrowed=$GATE_BORROWED"')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("PASS start old-box", result.stdout); self.assertIn("borrowed=1", result.stdout)
+        self.assertIn("run --detached --name old-box", calls)
+        self.assertFalse(any("rm" in call for call in calls), calls)
+
+    def test_the_launcher_gate_borrows_the_old_sandbox(self):
+        text = (ROOT / "tests/host/launcher-gate.sh").read_text()
+        self.assertIn('borrow "$BOXEN_OLD_SANDBOX"', text)
+        self.assertNotIn("sbx run", text)
 
     def test_cleanup_keeps_a_cloud_sandbox_it_cannot_identify(self):
         result, calls = self.gate('made ghost-box cloud; check fine true')          # never listed: no id recorded
