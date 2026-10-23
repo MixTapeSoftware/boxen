@@ -7,7 +7,6 @@ check() {
   if "$@" >/dev/null 2>&1; then printf 'PASS %s\n' "$label"
   else printf 'FAIL %s\n' "$label"; failed=1; fi
 }
-selected=",${BOXEN_PLUGINS:-},"
 check mise mise --version
 check Node node --version
 check Go go version
@@ -20,32 +19,33 @@ if [[ "${BOXEN_CLOUD:-0}" == 1 ]]; then
 else
   check 'No standing sudo' bash -c '! sudo -n true'
 fi
-for pair in 'fzf-bat:fzf' 'fzf-bat:bat' 'just:just' 'glow:glow' \
-  'mermaid-ascii:mermaid-ascii' 'overmind:overmind' 'rtkplus:rtk' \
-  'nvchad:nvim' '1pass:op' 'tailscale:tailscale'; do
-  plugin="${pair%%:*}"; binary="${pair#*:}"
-  [[ "$selected" != *",$plugin,"* ]] || check "$binary" command -v "$binary"
+# Every tool is baked into the image, so every box has all of them.
+for binary in fzf bat just glow mermaid-ascii overmind rtk nvim op tailscale; do
+  check "$binary" command -v "$binary"
 done
-if [[ "$selected" == *,cubic,* ]]; then check cubic test -x "$HOME/.cubic/bin/cubic"; fi
-if [[ "$selected" == *,chromium,* ]]; then
-  check Playwright playwright --version
-  check Chrome google-chrome --version
-  check ChromeDriver chromedriver --version
-  check 'Browser launch' node -e 'const {chromium}=require("playwright"); (async()=>{const b=await chromium.launch();const p=await b.newPage();await p.setContent("<title>boxen</title>");if(await p.title()!=="boxen")throw Error("title");await b.close()})().catch(e=>{console.error(e);process.exit(1)})'
-  check 'ChromeDriver session' python3 /usr/local/share/boxen/browser-check.py
-fi
-if [[ "$selected" == *,nvchad,* ]]; then
-  check 'nvChad config' test -f "$HOME/.config/nvim/lua/chadrc.lua"
-  check 'nvChad plugins' nvim --headless -c "luafile /usr/local/share/boxen/lazy-check.lua" -c qa
-  for lsp in lua-language-server gopls pyright-langserver typescript-language-server \
-    bash-language-server elixir-ls; do
-    check "Mason $lsp" test -x "$HOME/.local/share/nvim/mason/bin/$lsp"
-  done
-fi
-if [[ "$selected" == *,rtkplus,* ]]; then check 'Codex RTK hooks' test -f "$HOME/.codex/hooks.json"; fi
+check cubic test -x "$HOME/.cubic/bin/cubic"
+check Playwright playwright --version
+check Chrome google-chrome --version
+check ChromeDriver chromedriver --version
+check 'Browser launch' node -e 'const {chromium}=require("playwright"); (async()=>{const b=await chromium.launch();const p=await b.newPage();await p.setContent("<title>boxen</title>");if(await p.title()!=="boxen")throw Error("title");await b.close()})().catch(e=>{console.error(e);process.exit(1)})'
+check 'ChromeDriver session' python3 /usr/local/share/boxen/browser-check.py
+check 'nvChad config' test -f "$HOME/.config/nvim/lua/chadrc.lua"
+check 'nvChad plugins' nvim --headless -c "luafile /usr/local/share/boxen/lazy-check.lua" -c qa
+for lsp in lua-language-server gopls pyright-langserver typescript-language-server \
+  bash-language-server elixir-ls; do
+  check "Mason $lsp" test -x "$HOME/.local/share/nvim/mason/bin/$lsp"
+done
+# Only what a mixin adds at create depends on the plugins chosen.
+selected=",${BOXEN_PLUGINS:-},"
 if [[ "$selected" == *,tailscale,* ]]; then
   check 'Tailscale daemon socket' test -S /var/run/tailscale/tailscaled.sock
   printf 'INFO Tailnet login and HTTPS routes require a separate authenticated check.\n'
+fi
+if [[ "$selected" == *,rtkplus,* ]]; then
+  case "${BOXEN_AGENT:-shell}" in
+    claude) check 'Claude RTK hook' jq -e '[.hooks.PreToolUse[]?.hooks[]? | select(.command == "rtk hook claude")] | length == 1' "$HOME/.claude/settings.json" ;;
+    codex) check 'Codex RTK hooks' test -f "$HOME/.codex/hooks.json" ;;
+  esac
 fi
 case "${BOXEN_AGENT:-shell}" in
   shell) ;;

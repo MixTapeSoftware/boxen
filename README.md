@@ -475,10 +475,13 @@ reclaimed.
 Docker's agent mixin (`docker/sbx-kit-claude-mixin` and the Codex and Grok
 ones, pinned in `tests/host/pins.sh`). `BOXEN_AGENT` picks what the box
 starts: claude, codex, grok, or a shell when unset. The launcher does not use
-them yet; this README covers them once it does. Two host gates check them on a
-machine with sbx and Docker:
+them yet; this README covers them once it does. The first build takes 15 to 30
+minutes (Chrome and nvChad take the longest); after that, changing a runtime
+script rebuilds only the last step. Three host gates check them on a machine
+with sbx and Docker:
 
 ~~~bash
+bash tests/host/tools-gate.sh        # every tool baked in, build and rebuild times
 bash tests/host/compose-gate.sh      # the workload alone and with each agent mixin, locally
 BOXEN_CLOUD_POLICY_NOTE='your account network default' \
   bash tests/host/cloud-compose-gate.sh   # Docker Cloud: stop, SSH forward, a real expiry

@@ -42,6 +42,25 @@ capabilities:
           - deno.land
           # Supabase's hosted MCP server.
           - mcp.supabase.com
+          # The v2 cubic, nvchad and chromium kits' hosts: the tools are baked
+          # in, and cubic, editor plugin updates and Playwright still reach them.
+          - cubic.dev
+          - www.cubic.dev
+          - api.cubic.dev
+          - app.cubic.dev
+          - mcafvrhahbqdwfrtncql.supabase.co
+          - pypi.org
+          - files.pythonhosted.org
+          - hex.pm
+          - repo.hex.pm
+          - builds.hex.pm
+          - elixir-lang.org
+          - registry.npmmirror.com
+          # NvChad's nvim-cmp dependency cmp-async-path is hosted on Codeberg.
+          - codeberg.org
+          - cdn.playwright.dev
+          - playwright.download.prss.microsoft.com
+          - googlechromelabs.github.io
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
