@@ -7,7 +7,7 @@
 # Docker and jq. Run from anywhere:
 #   bash tests/host/mixins-gate.sh
 source "$(dirname "$0")/lib.sh"
-source "$(dirname "$0")/pins.sh"
+source "$(dirname "$0")/../../lib/pins.sh"
 cd "$(dirname "$0")/../.." || exit 2
 gate_begin mixins-gate
 

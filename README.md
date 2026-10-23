@@ -479,9 +479,10 @@ reclaimed.
 `v3/` holds the move to [v3 kits](https://docs.docker.com/ai/sandboxes/customize/):
 `v3/boxen` is a workload with every tool baked in, and each agent comes as
 Docker's agent mixin (`docker/sbx-kit-claude-mixin` and the Codex and Grok
-ones, pinned in `tests/host/pins.sh`). `BOXEN_AGENT` picks what the box
-starts: claude, codex, grok, or a shell when unset. The launcher does not use
-them yet; this README covers them once it does. The first build takes 15 to 30
+ones, pinned in `lib/pins.sh`). `BOXEN_AGENT` picks what the box
+starts: claude, codex, grok, or a shell when unset. `boxen create` composes
+them (`bash tests/host/launcher-gate.sh` checks that end to end); the sections
+above still describe v2's kits until the cutover. The first build takes 15 to 30
 minutes (Chrome and nvChad take the longest); after that, changing a runtime
 script rebuilds only the last step. Every box also has every skill from
 [MixTapeSoftware/skills](https://github.com/MixTapeSoftware/skills), such as

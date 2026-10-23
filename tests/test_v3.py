@@ -492,7 +492,7 @@ esac
         self.assertFalse(any("rm" in call for call in calls), calls)
 
     def test_agent_mixins_are_pinned_once_by_tag_and_digest(self):
-        out = subprocess.run(["bash", "-c", "source tests/host/pins.sh; for a in claude codex grok; do "
+        out = subprocess.run(["bash", "-c", "source lib/pins.sh; for a in claude codex grok; do "
                               "printf '%s %s %s\\n' \"$a\" \"$(mixin_ref $a)\" \"$(mixin_digest $a)\"; done"],
                              cwd=ROOT, capture_output=True, text=True)
         self.assertEqual(out.returncode, 0, out.stderr)
@@ -501,10 +501,14 @@ esac
             with self.subTest(agent=agent):
                 self.assertRegex(ref, rf"^docker\.io/docker/sbx-kit-{agent}-mixin:[0-9][0-9.]*$")
                 self.assertRegex(digest, r"^sha256:[0-9a-f]{64}$")
-        for gate in ("compose-gate.sh", "cloud-compose-gate.sh"):
-            with self.subTest(gate=gate):
-                text = (ROOT / "tests/host" / gate).read_text()
-                self.assertIn('source "$(dirname "$0")/pins.sh"', text)
+        # The launcher and every gate read one set of pins.
+        self.assertFalse((ROOT / "tests/host/pins.sh").exists())
+        for gate in sorted((ROOT / "tests/host").glob("*-gate.sh")):
+            text = gate.read_text()
+            if "mixin_ref" not in text:
+                continue
+            with self.subTest(gate=gate.name):
+                self.assertIn('source "$(dirname "$0")/../../lib/pins.sh"', text)
                 self.assertNotIn("sbx-kit-claude:", text)   # Docker's agent workloads are no longer used
 
     def test_host_scripts_guard_array_expansions_for_bash_3_2(self):
@@ -632,6 +636,17 @@ class Mixins(ScriptCase):
                 self.assertNotEqual(path.name, "tailscaled.state")
                 self.assertNotRegex(text, r"tskey-auth-[A-Za-z0-9]+")
                 self.assertNotIn("export OP_SERVICE_ACCOUNT_TOKEN=", text)
+
+class Launcher(unittest.TestCase):
+    def test_plugin_list_matches_the_launcher(self):
+        cli = (ROOT / "lib/cli.sh").read_text()
+        plugins = re.search(r'^PLUGINS="([^"]+)"', cli, re.M)[1].split()
+        kits = re.search(r'^KITS="([^"]+)"', cli, re.M)[1].split()
+        listed = [line.split("\t")[0] for line in (ROOT / "plugins.tsv").read_text().splitlines()[1:]]
+        self.assertEqual(listed, plugins)
+        # Every selectable mixin is a kit; rtkplus stands for the per-agent pair.
+        expected = {d.name for d in kit_dirs()} - {"boxen", "workspace", "rtkplus-claude", "rtkplus-codex"} | {"rtkplus"}
+        self.assertEqual(set(kits), expected)
 
 if __name__ == "__main__":
     unittest.main()

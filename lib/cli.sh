@@ -1,10 +1,11 @@
 # Sourced by boxen. Credentials are never accepted as command arguments.
 # Bash 3.2: no associative arrays; guard empty arrays under set -u.
 
-# Optional kits in install order. Docker is native to every sandbox, so there
-# is nothing to choose.
-KITS="fzf-bat just glow mermaid-ascii overmind cubic chromium nvchad rtkplus tailscale supabase-serve gh-auth 1pass"
-PLUGINS="$KITS"
+# Optional mixins in install order; rtkplus stands for the agent's own RTK
+# mixin. Every tool is baked into the workload, so there is nothing else to
+# choose; supabase-serve is an option on tailscale, not a kit.
+KITS="tailscale gh-auth 1pass rtkplus"
+PLUGINS="tailscale supabase-serve gh-auth 1pass rtkplus"
 # No kit is selected by default.
 DEFAULT_PLUGINS=""
 AGENTS="shell claude codex grok"
@@ -27,6 +28,9 @@ sbx() { "$SBX_PATH" "$@"; }
 need_sbx() {
   SBX_PATH="$(type -P "$SBX_BIN")" || die 'Install sbx and run sbx login first; see README.md.'
 }
+# sbx builds local v3 kits with Docker, for local and cloud sandboxes alike.
+docker_builder_ok() { "$DOCKER_BIN" info >/dev/null 2>&1 && "$DOCKER_BIN" buildx version >/dev/null 2>&1; }
+need_docker() { docker_builder_ok || die 'Install Docker and start it; sbx builds local v3 kits with it.'; }
 need_jq() { command -v jq >/dev/null 2>&1 || die "Install jq; $1 reads sbx ls --json."; }
 need_value() { [[ $# -ge 2 && -n "$2" ]] || die "Missing value for $1"; }
 in_list() { case " $2 " in *" $1 "*) return 0 ;; esac; return 1; }
@@ -37,6 +41,22 @@ valid_name() {
 }
 has_plugin() { [[ ",$selected," == *",$1,"* ]]; }
 add_plugin() { has_plugin "$1" || selected="${selected:+$selected,}$1"; }
+drop_plugin() {
+  selected=",$selected,"
+  selected="${selected/,$1,/,}"
+  selected="${selected#,}"; selected="${selected%,}"
+}
+# One line a shell reads back the same way: plain words bare, the rest in
+# single quotes, so --allow-network '**' prints as the CLI documents it.
+print_command() {
+  local arg out="" safe='^[A-Za-z0-9_./:=+@%-]+$'
+  for arg in "$@"; do
+    if [[ "$arg" =~ $safe ]]; then out="$out $arg"
+    elif [[ "$arg" != *"'"* ]]; then out="$out '$arg'"
+    else out="$out $(printf '%q' "$arg")"; fi
+  done
+  printf '%s\n' "${out# }"
+}
 set_agent() {
   [[ -z "$agent" || "$agent" == "$1" ]] ||
     die "One agent per sandbox: got $agent and $1. Create a second sandbox for the other agent."
@@ -56,8 +76,10 @@ boxen create NAME [DIRECTORY] [options]      (also: init, -i)
                                  One per sandbox. Default: shell
   --plugins default|all|none|ID,ID,...
                                  Default: none
-  --tailscale --supabase-serve --gh-token --1pass --cubic
+  --tailscale --supabase-serve --gh-token --1pass --rtkplus
   --claude --codex --grok        Shorthand flags; added to the selection
+  --open-network                 Allow every host (sbx --allow-network '**');
+                                 kit rules then add nothing
   --cpus N --memory SIZE         Default: 4 CPUs (at most the host's), 4g
   --ack-env                      Copy .env files without asking
   --copy-all                     Also copy node_modules, deps, _build and other
@@ -83,8 +105,8 @@ boxen status [--once]                        sbx's dashboard, or its table once
 boxen ls                                     List sandboxes
 boxen check NAME                             Check installed plugins
 boxen plugins                                List the plugins and what they install
-boxen validate                               Validate all kits using the installed sbx
-boxen doctor                                 Check local prerequisites
+boxen validate                               Validate the v3 kits using the installed sbx
+boxen doctor [--cloud]                       Check prerequisites; --cloud needs no KVM
 
 boxen auth github NAME [--from-gh]           Store a fine-grained token (stdin or
                                              prompt), or source the host gh token
@@ -288,17 +310,34 @@ warn_host_wide_agent_secret() {
     warn "sbx has a host-wide $service secret, so this sandbox uses it instead of its own sign-in. Remove it with: sbx secret rm $service"
   fi
 }
+# Run one of Boxen's guest scripts by name. The image keeps them under
+# /usr/local/share/boxen/; a sandbox made before v3 has its own copies under
+# /home/agent/.local/share/boxen/, so the probe tries both and never recreates
+# anything. Callers set GUEST_TTY=(-it) when the script needs a terminal.
+GUEST_TTY=()
+guest_script() {
+  local name="$1" script="$2"
+  shift 2
+  sbx exec ${GUEST_TTY[@]+"${GUEST_TTY[@]}"} "$name" sh -c '
+    for p in /usr/local/share/boxen/"$1" /home/agent/.local/share/boxen/"$1"; do
+      if [ -f "$p" ]; then shift; exec bash "$p" "$@"; fi
+    done
+    echo "boxen: $1 is not in the sandbox" >&2; exit 127' sh "$script" "$@"
+}
 # Offer the agent's subscription sign-in on the way in, when the sandbox needs
 # one. Terminal only; anything unexpected skips the offer instead of blocking.
 offer_agent_login() {
   local status=0 answer
   [[ -t 0 && -t 1 ]] || return 0
-  sbx exec "$1" bash /home/agent/.local/share/boxen/agent-login.sh status </dev/null >/dev/null 2>&1 || status=$?
+  GUEST_TTY=()
+  guest_script "$1" agent-login.sh status </dev/null >/dev/null 2>&1 || status=$?
   [[ "$status" == 10 ]] || return 0
   read_value answer "$1's agent is not signed in. Sign in to your subscription now? [Y/n] "
   case "$answer" in n|N|no|No|NO) return 0 ;; esac
-  sbx exec -it "$1" bash /home/agent/.local/share/boxen/agent-login.sh login ||
+  GUEST_TTY=(-it)
+  guest_script "$1" agent-login.sh login ||
     warn "Sign-in did not finish; boxen $1 offers it again."
+  GUEST_TTY=()
 }
 # Reads `export VAR=value` on stdin and stores it in the sandbox, replacing any
 # earlier value. The sandbox and its agent can read it.
@@ -320,7 +359,7 @@ create() {
   local copy_all=0 skips="" copy_kib=0
   # Nothing from the host is mounted unless asked: no workspace mount, no
   # shared skills store (sbx's own default is a read-only link).
-  local skills=off mounts="" tui=1 chose_plugins=0
+  local skills=off mounts="" tui=1 chose_plugins=0 open_network=0
   local gh_token="" op_token="" ts_key="" ts_port="" port_re='^[0-9]+$'
   local selected="" item kit workload identity value home
   local kit_args=() command=() items=()
@@ -332,9 +371,10 @@ create() {
       --grok|--grokbot) set_agent grok; shift ;;
       --plugins) need_value "$@"; requested="$2"; chose_plugins=1; shift 2 ;;
       --docker) shift ;; # Always included
-      --cubic|--tailscale|--supabase-serve|--1pass)
+      --tailscale|--supabase-serve|--1pass|--rtkplus)
         flagged="${flagged:+$flagged,}${1#--}"; shift ;;
       --gh-token) flagged="${flagged:+$flagged,}gh-auth"; shift ;;
+      --open-network) open_network=1; shift ;;
       -p|--path)
         need_value "$@"
         [[ -z "$directory" ]] || die 'Only one workspace directory is supported'
@@ -410,6 +450,12 @@ create() {
   # The selector shows in a terminal unless --plugins already chose the kits.
   if [[ "$tui" == 1 && "$chose_plugins" == 0 && -t 0 && -t 1 ]]; then tui_select; fi
   if has_plugin supabase-serve; then add_plugin tailscale; fi
+  if has_plugin rtkplus; then
+    case "$agent" in
+      claude|codex) ;;
+      *) log "RTK hooks apply to Claude and Codex; not added for $agent"; drop_plugin rtkplus ;;
+    esac
+  fi
   if [[ -z "$cpus" ]]; then
     cpus="$(host_cpus)"
     if [[ "$cpus" -gt 4 ]]; then cpus=4; fi
@@ -417,25 +463,31 @@ create() {
   [[ "$cpus" =~ ^[1-9][0-9]*$ ]] || die "Invalid --cpus: $cpus"
   to_kib "$memory" >/dev/null || die "Invalid --memory: $memory (for example 2g or 512m)"
 
-  kit_args=(--kit "$PROJECT_DIR/kits/core")
-  # Copied and empty workspaces live on a kit volume so they survive
-  # container recreation, such as sbx kit add.
-  case "$mode" in copy|none) kit_args+=(--kit "$PROJECT_DIR/kits/workspace") ;; esac
+  # Docker's agent mixin goes first, so Boxen's hooks run after its settings
+  # seed; a shell box is the workload alone.
+  kit_args=()
+  if [[ "$agent" != shell ]]; then kit_args+=(--kit "$(mixin_ref "$agent")"); fi
+  # Copied and empty workspaces get the agent-owned /workspace link; mounts
+  # bring their own directory.
+  case "$mode" in copy|none) kit_args+=(--kit "$PROJECT_DIR/v3/workspace") ;; esac
   for kit in $KITS; do
-    if has_plugin "$kit"; then kit_args+=(--kit "$PROJECT_DIR/kits/$kit"); fi
+    has_plugin "$kit" || continue
+    if [[ "$kit" == rtkplus ]]; then kit="rtkplus-$agent"; fi
+    kit_args+=(--kit "$PROJECT_DIR/v3/$kit")
   done
-  workload="$agent"
-  if [[ "$agent" == grok ]]; then workload="$PROJECT_DIR/agents/grok"; fi
-  if [[ "$agent" == claude ]] && has_plugin rtkplus; then
-    workload="$PROJECT_DIR/agents/claude-rtk"
-  fi
+  # The workload, with every tool baked in, is the positional.
+  workload="$PROJECT_DIR/v3/boxen"
   case "$mode" in
     mount) mounts="$directory (read-write)" ;;
     clone) mounts="$directory (read-only, with a Git remote back to the host)" ;;
   esac
   if [[ "$skills" != off ]]; then mounts="${mounts:+$mounts; }sbx skills store ($skills)"; fi
   command=(create --name "$name" --skills "$skills" --cpus "$cpus" --memory "$memory"
-    --env "BOXEN_AGENT=$agent" --env "BOXEN_PLUGINS=$selected" "${kit_args[@]}")
+    --env "BOXEN_AGENT=$agent" --env "BOXEN_PLUGINS=$selected")
+  if has_plugin supabase-serve; then command+=(--env BOXEN_SERVE_PRESET=supabase); fi
+  # The literal two-asterisk argument; the account's or host's denies still win.
+  if [[ "$open_network" == 1 ]]; then command+=(--allow-network '**'); fi
+  command+=(${kit_args[@]+"${kit_args[@]}"})
   if [[ "$mode" == clone ]]; then command+=(--clone); fi
   command+=("$workload")
   case "$mode" in mount|clone) command+=("$directory") ;; esac
@@ -445,7 +497,7 @@ create() {
     copy_kib="$(copy_size "$directory" "$skips")"
   fi
   if [[ "$dry" == 1 ]]; then
-    printf '%q ' "$SBX_BIN" "${command[@]}"; printf '\n'
+    print_command "$SBX_BIN" "${command[@]}"
     printf 'Workspace: %s%s\n' "$mode" "${directory:+ ($directory)}"
     if [[ "$mode" == copy ]]; then copy_summary "$copy_kib" "$skips"; fi
     printf 'Plugins: %s\n' "${selected:-none}"
@@ -454,6 +506,7 @@ create() {
     return
   fi
   need_sbx
+  need_docker
   memory_ok "$memory" || exit 1
   warn_host_wide_agent_secret "$agent"
   # Ask for the selected plugins' keys before the long provisioning run. Each
@@ -489,8 +542,7 @@ create() {
   if [[ "$mode" == copy ]]; then
     log "Copying $directory into /workspace, including .git and uncommitted files"
     copy_summary "$copy_kib" "$skips"
-    sbx exec --user root "$name" install -d -o 1000 -g 1000 /home/agent/workspace ||
-      created_but "$name" 'preparing /workspace'
+    # The workspace mixin's install hook made the directory, owned by the agent.
     copy_workspace "$name" "$directory" "$skips" "$((copy_kib * 1024))" || created_but "$name" "copying $directory"
   fi
   for identity in name email; do
@@ -834,15 +886,26 @@ version_ge() {
 }
 
 cmd_doctor() {
-  local version service
+  local version service cloud=0 failed=0
+  case "${1:-}" in
+    --cloud) cloud=1 ;;
+    '') ;;
+    *) die 'Usage: doctor [--cloud]' ;;
+  esac
   need_sbx
   version="$(sbx version 2>/dev/null | sed -n 's/.*version: v\{0,1\}\([0-9][0-9.]*\).*/\1/p' | head -1)"
   [[ -n "$version" ]] || die 'Could not read the sbx version'
   version_ge "$version" "$MIN_SBX_VERSION" ||
     die "sbx $version is too old; boxen needs $MIN_SBX_VERSION or newer."
   printf 'sbx %s\n' "$version"
-  if [[ "$(uname -s)" == Linux ]]; then
+  # KVM runs local microVMs; a cloud sandbox runs on Docker's hosts.
+  if [[ "$cloud" == 0 && "${BOXEN_SKIP_KVM_CHECK:-0}" != 1 && "$(uname -s)" == Linux ]]; then
     [[ -r /dev/kvm && -w /dev/kvm ]] || die '/dev/kvm is not accessible; local sandboxes need KVM and kvm group membership.'
+  fi
+  if docker_builder_ok; then
+    printf 'Docker builder: ok\n'
+  else
+    printf 'Docker builder: unavailable (sbx builds local v3 kits with it)\n'; failed=1
   fi
   command -v jq >/dev/null 2>&1 || printf 'Note: kill-all and update-all need jq.\n'
   for service in anthropic openai; do
@@ -850,13 +913,18 @@ cmd_doctor() {
       printf 'Note: a host-wide %s secret replaces each sandbox'"'"'s own sign-in (sbx secret rm %s).\n' "$service" "$service"
     fi
   done
-  sbx ls
+  if [[ "$cloud" == 1 ]]; then
+    if sbx --cloud ls </dev/null; then printf 'Cloud: ok\n'; else printf 'Cloud: unreachable\n'; failed=1; fi
+  else
+    sbx ls
+  fi
+  [[ "$failed" == 0 ]] || exit 1
 }
 
 cmd_validate() {
   local kit failed=0
   need_sbx
-  for kit in "$PROJECT_DIR"/kits/* "$PROJECT_DIR"/agents/*; do
+  for kit in "$PROJECT_DIR"/v3/*; do
     sbx kit validate "$kit" || failed=1
   done
   [[ "$failed" == 0 ]] || die 'Some kits failed validation'
@@ -885,11 +953,12 @@ main() {
     check)
       [[ $# == 1 ]] || die 'Usage: check NAME'
       need_sandbox "$1"
-      sbx exec "$1" bash /home/agent/.local/share/boxen/check.sh ;;
+      GUEST_TTY=()
+      guest_script "$1" check.sh ;;
     auth) auth "$@" ;;
     tailscale) tailscale_command "$@" ;;
     validate) cmd_validate ;;
-    doctor) cmd_doctor ;;
+    doctor) cmd_doctor "$@" ;;
     -*) die "Unknown option: $command (try --help)" ;;
     # A bare name opens a shell.
     *) cmd_shell "$command" "$@" ;;

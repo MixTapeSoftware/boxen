@@ -6,7 +6,7 @@
 # ssh, curl and GNU date; about fifteen minutes of cloud compute.
 #   BOXEN_CLOUD_POLICY_NOTE='account default: allow all' bash tests/host/cloud-compose-gate.sh
 source "$(dirname "$0")/lib.sh"
-source "$(dirname "$0")/pins.sh"
+source "$(dirname "$0")/../../lib/pins.sh"
 cd "$(dirname "$0")/../.." || exit 2
 gate_begin cloud-compose-gate
 for tool in ssh curl; do command -v "$tool" >/dev/null || { say "Install $tool first"; exit 2; }; done

@@ -4,6 +4,7 @@ import io
 import json
 import os
 import pty
+import re
 import select
 from pathlib import Path
 import shutil
@@ -13,7 +14,16 @@ import tempfile
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-KITS = "fzf-bat just glow mermaid-ascii overmind cubic chromium nvchad rtkplus tailscale supabase-serve gh-auth 1pass".split()
+KITS = "tailscale supabase-serve gh-auth 1pass rtkplus".split()
+WORKLOAD = str(ROOT / "v3/boxen")
+
+
+def mixin(agent):
+    """The agent mixin the launcher composes, read from the pins the gates use."""
+    out = subprocess.run(["bash", "-c", f'source lib/pins.sh && mixin_ref {agent}'], cwd=ROOT,
+                         capture_output=True, text=True)
+    return out.stdout.strip()
+
 
 FAKE_SBX = """#!/usr/bin/env python3
 import base64, json, os, sys
@@ -37,7 +47,7 @@ elif args[:2] == ['secret', 'ls']:
     service = args[args.index('--service') + 1]
     have = service in os.environ.get('FAKE_GLOBAL_SECRETS', '').split(',')
     print(json.dumps({'secrets': [{'service': service, 'scope': 'global'}] if have else []}, indent=2))
-elif args[0] == 'exec' and args[-2:] == ['/home/agent/.local/share/boxen/agent-login.sh', 'status']:
+elif args[0] == 'exec' and any('agent-login.sh' in a for a in args) and args[-1] == 'status':
     sys.exit(int(os.environ.get('FAKE_LOGIN_STATUS', '0')))
 elif args[0] == 'version':
     print('sbx version: v' + os.environ.get('FAKE_SBX_VERSION', '0.47.0') + ' 0411f50')
@@ -49,8 +59,19 @@ elif args[0] == 'run' and '--detached' in args and os.environ.get('FAKE_RUN_FAIL
     sys.exit(3)
 elif args[0] == 'rm' and not os.environ.get('FAKE_RM_DECLINE'):
     names.remove(args[1]); save()
-elif args[:2] == ['kit', 'validate'] and args[2].endswith('/glow'):
+elif args[:2] == ['kit', 'validate'] and args[2].endswith('/1pass'):
     sys.exit(1)
+"""
+
+# sbx builds local kits with Docker; the launcher only asks whether it is there.
+FAKE_DOCKER = """#!/usr/bin/env python3
+import json, os, sys
+args = sys.argv[1:]
+with open(os.environ['FAKE_DOCKER_LOG'], 'a') as f:
+    f.write(json.dumps({'args': args}) + '\\n')
+if os.environ.get('FAKE_DOCKER_FAIL'):
+    sys.exit(1)
+sys.exit(0 if args[:1] == ['info'] or args[:2] == ['buildx', 'version'] else 2)
 """
 
 
@@ -65,12 +86,17 @@ class CLI(unittest.TestCase):
         self.fake.parent.mkdir()
         self.fake.write_text(FAKE_SBX)
         self.fake.chmod(0o755)
+        self.docker = self.directory / "bin" / "docker"
+        self.docker.write_text(FAKE_DOCKER)
+        self.docker.chmod(0o755)
+        self.docker_log = self.directory / "docker.jsonl"
         self.project = self.directory / "project"
         self.project.mkdir()
         self.env = dict(
             os.environ, SBX_BIN=str(self.fake), FAKE_SBX_LOG=str(self.log),
             FAKE_SBX_STATE=str(self.state), BOXEN_STATE_DIR=str(self.directory / "state"),
-            BOXEN_SKIP_MEMORY_CHECK="1",
+            BOXEN_SKIP_MEMORY_CHECK="1", DOCKER_BIN=str(self.docker), FAKE_DOCKER_LOG=str(self.docker_log),
+            BOXEN_SKIP_KVM_CHECK="1",
         )
         # Prevent real global Git identity/configuration from affecting tests.
         self.env["GIT_CONFIG_GLOBAL"] = str(self.directory / "gitconfig")
@@ -99,16 +125,22 @@ class CLI(unittest.TestCase):
                                          and c["args"][:2] != ["secret", "ls"]]
 
     def kits(self, args):
-        return [Path(args[i + 1]).name for i, a in enumerate(args) if a == "--kit"]
+        """Boxen's own kits, in order. The agent mixin is a registry reference."""
+        return [Path(args[i + 1]).name for i, a in enumerate(args)
+                if a == "--kit" and args[i + 1].startswith(str(ROOT / "v3"))]
+
+    def agent_mixins(self, args):
+        return [args[i + 1] for i, a in enumerate(args) if a == "--kit" and not args[i + 1].startswith(str(ROOT))]
 
     # --- create ---------------------------------------------------------------
 
-    def test_no_copy_is_mountless_and_keeps_the_workspace_volume(self):
+    def test_no_copy_is_mountless_and_links_the_workspace(self):
         self.cli("create", "scratch", "--no-copy", "--plugins", "none")
         calls = self.calls()
-        self.assertEqual(calls[0]["args"][-1], "shell")
+        self.assertEqual(calls[0]["args"][-1], WORKLOAD)
         self.assertIn("BOXEN_PLUGINS=", calls[0]["args"])
-        self.assertEqual(self.kits(calls[0]["args"]), ["core", "workspace"])
+        self.assertEqual(self.kits(calls[0]["args"]), ["workspace"])
+        self.assertEqual(self.agent_mixins(calls[0]["args"]), [])
         self.assertEqual(calls[1]["args"], ["run", "--detached", "--name", "scratch"])
         self.assertFalse(any("tar" in c["args"] for c in calls))
 
@@ -118,7 +150,10 @@ class CLI(unittest.TestCase):
         calls = self.calls()
         self.assertNotIn(str(self.project), calls[0]["args"])
         self.assertIn("workspace", self.kits(calls[0]["args"]))
-        archive = tarfile.open(fileobj=io.BytesIO(base64.b64decode(calls[3]["stdin_b64"])))
+        # The workspace mixin's install hook made the directory; no root exec prepares it.
+        self.assertFalse(any("--user" in c["args"] for c in calls))
+        copy = next(c for c in calls if "stdin_b64" in c and "tar" in c["args"])
+        archive = tarfile.open(fileobj=io.BytesIO(base64.b64decode(copy["stdin_b64"])))
         self.assertEqual(archive.extractfile("./file").read(), b"x")
 
     def test_refuses_to_copy_home_or_root(self):
@@ -132,16 +167,17 @@ class CLI(unittest.TestCase):
     def test_default_plugins_and_resources(self):
         self.cli("create", "box", "--no-copy")
         args = self.calls()[0]["args"]
-        self.assertEqual(self.kits(args), ["core", "workspace"])
+        self.assertEqual(self.kits(args), ["workspace"])
         self.assertIn("BOXEN_PLUGINS=", args)
         self.assertEqual(args[args.index("--memory") + 1], "4g")
         self.assertLessEqual(int(args[args.index("--cpus") + 1]), 4)
 
     def test_full_preset_is_ordered_and_has_no_chadmux(self):
-        self.cli("create", "full", "--no-copy", "--plugins", "all")
+        self.cli("create", "full", "--no-copy", "--plugins", "all", "--claude")
         args = self.calls()[0]["args"]
-        kits = self.kits(args)
-        self.assertEqual(kits, ["core", "workspace"] + KITS)
+        self.assertEqual(self.agent_mixins(args), [mixin("claude")])
+        self.assertEqual(self.kits(args), ["workspace", "tailscale", "gh-auth", "1pass", "rtkplus-claude"])
+        self.assertIn("BOXEN_SERVE_PRESET=supabase", args)
         self.assertNotIn("chadmux", " ".join(args))
         self.assertEqual(args[args.index("--skills") + 1], "off")
 
@@ -149,18 +185,19 @@ class CLI(unittest.TestCase):
         self.cli("create", "routes", "--no-copy", "--plugins", "supabase-serve,supabase-serve")
         args = self.calls()[0]["args"]
         self.assertEqual(self.kits(args).count("tailscale"), 1)
-        self.assertEqual(self.kits(args).count("supabase-serve"), 1)
+        self.assertNotIn("supabase-serve", self.kits(args))
 
     def test_plugin_flags_add_to_the_defaults(self):
         self.cli("create", "box", "--no-copy", "--tailscale", "--gh-token", "--1pass", "--claude", "--no-tui")
         args = self.calls()[0]["args"]
-        self.assertEqual(self.kits(args), ["core", "workspace", "tailscale", "gh-auth", "1pass"])
-        self.assertEqual(args[-1], "claude")
+        self.assertEqual(self.kits(args), ["workspace", "tailscale", "gh-auth", "1pass"])
+        self.assertEqual(self.agent_mixins(args), [mixin("claude")])
+        self.assertEqual(args[-1], WORKLOAD)
 
     def test_docker_is_always_included_not_chosen(self):
         self.cli("create", "box", "--no-copy", "--docker", "--plugins", "docker,gh-auth")
         args = self.calls()[0]["args"]
-        self.assertEqual(self.kits(args), ["core", "workspace", "gh-auth"])
+        self.assertEqual(self.kits(args), ["workspace", "gh-auth"])
         self.assertIn("BOXEN_PLUGINS=gh-auth", args)
         self.assertNotIn("docker", self.cli("plugins").stdout)
 
@@ -178,9 +215,8 @@ class CLI(unittest.TestCase):
         self.cli("create", "copy", str(project), "--plugins", "none")
         calls = self.calls()
         self.assertNotIn(str(project), calls[0]["args"])
-        self.assertEqual(calls[2]["args"], ["exec", "--user", "root", "copy", "install", "-d", "-o", "1000", "-g", "1000", "/home/agent/workspace"])
-        self.assertEqual(calls[3]["args"], ["exec", "-i", "--workdir", "/home/agent/workspace", "copy", "tar", "--no-same-owner", "--warning=no-unknown-keyword", "-xf", "-"])
-        archive = tarfile.open(fileobj=io.BytesIO(base64.b64decode(calls[3]["stdin_b64"])))
+        self.assertEqual(calls[2]["args"], ["exec", "-i", "--workdir", "/home/agent/workspace", "copy", "tar", "--no-same-owner", "--warning=no-unknown-keyword", "-xf", "-"])
+        archive = tarfile.open(fileobj=io.BytesIO(base64.b64decode(calls[2]["stdin_b64"])))
         self.assertEqual(archive.extractfile("./bytes").read(), bytes(range(256)))
         self.assertEqual(archive.extractfile("./.hidden").read(), b"preserved")
         self.assertFalse(any(c["args"][0] in ("rm", "prune") for c in calls))
@@ -227,26 +263,94 @@ class CLI(unittest.TestCase):
         self.assertIn("  deps\n", stdout)
         self.assertEqual(self.calls(everything=True), [])
 
-    def test_explicit_mount_has_no_workspace_volume(self):
+    def test_explicit_mount_has_no_workspace_link(self):
         self.cli("create", "mount", str(self.project), "--mode", "mount", "--plugins", "none")
         args = self.calls()[0]["args"]
-        self.assertEqual(args[-1], str(self.project))
-        self.assertEqual(self.kits(args), ["core"])
+        self.assertEqual(args[-2:], [WORKLOAD, str(self.project)])
+        self.assertEqual(self.kits(args), [])
         self.assertFalse(any("tar" in c["args"] for c in self.calls()))
 
     def test_clone_requires_git_before_any_sbx_mutation(self):
         self.cli("create", "clone", "--mode", "clone", ok=False)
         self.assertEqual(self.calls(), [])
 
-    def test_agent_analogs_and_rtk_settings(self):
-        self.cli("create", "claude-test", "--no-copy", "--agent", "claude", "--plugins", "rtkplus")
-        self.assertEqual(self.calls()[0]["args"][-1], str(ROOT / "agents/claude-rtk"))
+    def test_agents_are_pinned_mixins_on_the_boxen_workload(self):
+        for agent in ("claude", "codex", "grok"):
+            with self.subTest(agent=agent):
+                self.cli("create", f"{agent}-test", "--no-copy", "--agent", agent, "--plugins", "none")
+                args = self.calls()[0]["args"]
+                self.log.unlink()
+                self.assertEqual(args[-1], WORKLOAD)
+                self.assertEqual(self.agent_mixins(args), [mixin(agent)])
+                self.assertRegex(mixin(agent), rf"^docker\.io/docker/sbx-kit-{agent}-mixin:[0-9][A-Za-z0-9.-]*$")
+                # The agent mixin comes first, so Boxen's hooks run after its settings seed.
+                self.assertLess(args.index(mixin(agent)), args.index(f"{ROOT}/v3/workspace"))
+        self.cli("create", "shell-test", "--no-copy", "--plugins", "none")
+        self.assertEqual(self.agent_mixins(self.calls()[0]["args"]), [])
+
+    def test_launcher_shares_the_pins_with_the_gates(self):
+        self.assertNotIn("sbx-kit-", (ROOT / "lib/cli.sh").read_text())
+        self.assertIn('source "$PROJECT_DIR/lib/pins.sh"', (ROOT / "boxen").read_text())
+
+    def test_rtk_mixin_follows_the_agent(self):
+        self.cli("create", "rtk-claude", "--no-copy", "--claude", "--plugins", "rtkplus")
+        self.assertIn("rtkplus-claude", self.kits(self.calls()[0]["args"])); self.log.unlink()
+        self.cli("create", "rtk-codex", "--no-copy", "--codex", "--plugins", "rtkplus")
+        self.assertIn("rtkplus-codex", self.kits(self.calls()[0]["args"])); self.log.unlink()
+        result = self.cli("create", "rtk-shell", "--no-copy", "--plugins", "rtkplus")
+        args = self.calls()[0]["args"]
+        self.assertFalse([k for k in self.kits(args) if k.startswith("rtkplus")])
+        self.assertIn("BOXEN_PLUGINS=", args)
+        self.assertNotIn("BOXEN_PLUGINS=rtkplus", args)
+        self.assertIn("RTK hooks apply to Claude and Codex", result.stdout + result.stderr)
+
+    def test_supabase_serve_is_an_env_var_on_tailscale(self):
+        self.cli("create", "routes", "--no-copy", "--plugins", "supabase-serve")
+        args = self.calls()[0]["args"]
+        self.assertEqual(self.kits(args), ["workspace", "tailscale"])
+        self.assertIn("BOXEN_SERVE_PRESET=supabase", args)
         self.log.unlink()
-        self.cli("create", "codex-test", "--no-copy", "--agent", "codex", "--plugins", "none")
-        self.assertEqual(self.calls()[0]["args"][-1], "codex")
+        self.cli("create", "plain", "--no-copy", "--plugins", "tailscale")
+        self.assertNotIn("BOXEN_SERVE_PRESET=supabase", self.calls()[0]["args"])
+
+    def test_open_network_is_a_single_double_star_argument(self):
+        self.cli("create", "wide", "--no-copy", "--plugins", "none", "--open-network")
+        args = self.calls()[0]["args"]
+        self.assertEqual(args[args.index("--allow-network") + 1], "**")
         self.log.unlink()
-        self.cli("create", "grok-test", "--no-copy", "--grok", "--plugins", "none")
-        self.assertEqual(self.calls()[0]["args"][-1], str(ROOT / "agents/grok"))
+        self.cli("create", "narrow", "--no-copy", "--plugins", "none")
+        self.assertNotIn("--allow-network", self.calls()[0]["args"])
+        out = self.cli("create", "dry", "--no-copy", "--plugins", "none", "--open-network", "--dry-run").stdout
+        self.assertIn("--allow-network '**'", out)
+
+    def test_create_requires_a_docker_builder(self):
+        self.env["FAKE_DOCKER_FAIL"] = "1"
+        result = self.cli("create", "box", "--no-copy", "--plugins", "none", ok=False)
+        self.assertIn("Install Docker and start it; sbx builds local v3 kits with it", result.stderr)
+        self.assertEqual(self.calls(), [])
+        self.cli("create", "box", "--no-copy", "--plugins", "none", "--dry-run")  # dry runs never need Docker
+
+    def test_cubic_flag_is_gone(self):
+        self.cli("create", "box", "--no-copy", "--cubic", ok=False)
+        self.assertEqual(self.calls(), [])
+
+    def test_old_sandboxes_keep_working(self):
+        self.sandboxes("old")
+        self.cli("check", "old")
+        self.cli("old", "true")
+        for call in self.calls():
+            self.assertNotEqual(call["args"][0], "create")
+        probe = next(c["args"] for c in self.calls() if "check.sh" in " ".join(c["args"]))
+        self.assertIn("/usr/local/share/boxen/", " ".join(probe))
+        self.assertIn("/home/agent/.local/share/boxen/", " ".join(probe))
+
+    def test_doctor_reports_docker_and_has_a_cloud_path(self):
+        self.assertIn("Docker builder: ok", self.cli("doctor").stdout)
+        self.env.pop("BOXEN_SKIP_KVM_CHECK")
+        self.assertIn("Docker builder: ok", self.cli("doctor", "--cloud").stdout)   # no KVM needed for cloud
+        self.env["FAKE_DOCKER_FAIL"] = "1"
+        result = self.cli("doctor", "--cloud", ok=False)
+        self.assertIn("Docker builder: unavailable", result.stdout + result.stderr)
 
     def test_nothing_from_the_host_is_mounted_by_default(self):
         for agent in ("shell", "claude", "codex", "grok"):
@@ -307,10 +411,10 @@ class CLI(unittest.TestCase):
         return [(b"always included", bytes([k])) for k in keys]
 
     def test_selector_chooses_an_agent_and_kits(self):
-        # Rows: shell, claude, codex, grok, then kits from fzf-bat on.
+        # Rows: shell, claude, codex, grok, then kits from tailscale on.
         output, code = self.tty("create", "box", "--no-copy", "--dry-run", script=self.keys(b"j jjj \r"))
         self.assertEqual(code, 0, output)
-        self.assertIn("Plugins: fzf-bat\r\n", output)
+        self.assertIn("Plugins: tailscale\r\n", output)
         self.assertIn("BOXEN_AGENT=claude", output)
         self.assertLess(output.index("Docker (Engine and Compose) and the core tools: always included"),
                         output.index("Agent (one per sandbox)"))
@@ -349,16 +453,16 @@ class CLI(unittest.TestCase):
         self.assertEqual(join["args"], ["exec", "-i", "--user", "root", "box", "/usr/local/bin/boxen-tailscale", "join", "box", "--auth-key-stdin"])
         self.assertEqual(base64.b64decode(join["stdin_b64"]).decode(), "tskey-auth-fake\n")
         self.assertIn(["exec", "--user", "root", "box", "/usr/local/bin/boxen-tailscale", "serve", "5173"], [c["args"] for c in calls])
-        self.assertEqual(calls[-1]["args"], ["exec", "-it", "box", "bash", "/home/agent/.local/share/boxen/agent-login.sh", "login"])
+        self.assertLoginCall(calls[-1]["args"], "box", "login")
         for secret in ("github_pat_fake", "ops_fake", "tskey-auth-fake"):
             self.assertNotIn(secret, json.dumps([c["args"] for c in calls]))
             self.assertNotIn(secret, output)
 
     def test_keys_are_asked_for_right_after_the_selector(self):
-        # From the first row, k wraps to 1pass, the last row, then gh-auth above it.
+        # From the first row, k wraps to rtkplus, the last row; 1pass and gh-auth sit above it.
         output, code = self.tty(
             "create", "box", "--no-copy",
-            script=self.keys(b"k k ") + [(b"always included", b"\r"),
+            script=self.keys(b"kk k ") + [(b"always included", b"\r"),
                                          (b"GitHub token", b"github_pat_fake\r"),
                                          (b"1Password token", b"ops_fake\r")])
         self.assertEqual(code, 0, output)
@@ -381,12 +485,26 @@ class CLI(unittest.TestCase):
         output, code = self.tty("box", script=[(b"Sign in to your subscription now?", b"n\r")])
         self.assertEqual(code, 0, output)
         self.tty("run", "box", script=[(b"Sign in to your subscription now?", b"\r")])
-        status = ["exec", "box", "bash", "/home/agent/.local/share/boxen/agent-login.sh", "status"]
-        self.assertEqual([c["args"] for c in self.calls()], [
-            status, ["exec", "-it", "box", "zsh", "-l"],
-            status, ["exec", "-it", "box", "bash", "/home/agent/.local/share/boxen/agent-login.sh", "login"],
-            ["run", "--name", "box"],
-        ])
+        calls = [c["args"] for c in self.calls()]
+        self.assertEqual(len(calls), 5)
+        self.assertLoginCall(calls[0], "box", "status")
+        self.assertEqual(calls[1], ["exec", "-it", "box", "zsh", "-l"])
+        self.assertLoginCall(calls[2], "box", "status")
+        self.assertLoginCall(calls[3], "box", "login")
+        self.assertEqual(calls[4], ["run", "--name", "box"])
+
+    def assertLoginCall(self, args, name, action):
+        """A guest-script exec: the sign-in probe tries the v3 path, then the pre-v3 one."""
+        self.assertEqual(args[0], "exec")
+        self.assertIn(name, args)
+        self.assertEqual(args[-1], action)
+        self.assertEqual(args[-2], "agent-login.sh")
+        self.assertIn("/usr/local/share/boxen/", " ".join(args))
+        self.assertIn("/home/agent/.local/share/boxen/", " ".join(args))
+        if action == "login":
+            self.assertIn("-it", args)
+        else:
+            self.assertNotIn("-it", args)
 
     def test_no_sign_in_offer_when_signed_in_or_running_a_command(self):
         self.sandboxes("box")
@@ -394,11 +512,11 @@ class CLI(unittest.TestCase):
         self.assertNotIn("Sign in", output)
         self.env["FAKE_LOGIN_STATUS"] = "10"
         self.tty("shell", "box", "ls")
-        self.assertEqual([c["args"] for c in self.calls()], [
-            ["exec", "box", "bash", "/home/agent/.local/share/boxen/agent-login.sh", "status"],
-            ["exec", "-it", "box", "zsh", "-l"],
-            ["exec", "-it", "box", "zsh", "-lc", "ls"],
-        ])
+        calls = [c["args"] for c in self.calls()]
+        self.assertEqual(len(calls), 3)
+        self.assertLoginCall(calls[0], "box", "status")
+        self.assertEqual(calls[1], ["exec", "-it", "box", "zsh", "-l"])
+        self.assertEqual(calls[2], ["exec", "-it", "box", "zsh", "-lc", "ls"])
 
     def test_host_wide_agent_secret_is_flagged(self):
         self.env["FAKE_GLOBAL_SECRETS"] = "anthropic"
@@ -649,7 +767,7 @@ class CLI(unittest.TestCase):
     def test_validate_reports_every_kit(self):
         result = self.cli("validate", ok=False)
         validated = [c["args"][2] for c in self.calls() if c["args"][:2] == ["kit", "validate"]]
-        self.assertEqual(len(validated), len(list((ROOT / "kits").iterdir())) + len(list((ROOT / "agents").iterdir())))
+        self.assertEqual(sorted(Path(v).name for v in validated), sorted(p.name for p in (ROOT / "v3").iterdir()))
         self.assertIn("Some kits failed validation", result.stderr)
 
     def test_cron_keeps_path_and_replaces_its_own_line(self):

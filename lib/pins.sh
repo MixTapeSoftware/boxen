@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-# Docker's agent mixins that the gates put on Boxen's workload, by tag, and
-# the index digest each tag had when read from the registry on 2026-10-22.
+# Docker's agent mixins the launcher and the gates put on Boxen's workload,
+# by tag, and the index digest each tag had when read from the registry on
+# 2026-10-22.
 # These are the versions sbx v0.47.0 can read: newer Claude mixins use an
 # agent-context field it rejects. Move a tag and its digest together.
 mixin_ref() {

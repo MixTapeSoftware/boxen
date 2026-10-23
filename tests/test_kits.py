@@ -5,8 +5,8 @@ import unittest
 import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
-CLI = (ROOT / "lib/cli.sh").read_text()
-KITS = re.search(r'^KITS="([^"]+)"', CLI, re.M)[1].split()
+# v2's kit list, frozen: the launcher now creates from v3/ until Task 8 removes kits/.
+KITS = "fzf-bat just glow mermaid-ascii overmind cubic chromium nvchad rtkplus tailscale supabase-serve gh-auth 1pass".split()
 
 
 def spec(name):
@@ -49,12 +49,6 @@ class Kits(unittest.TestCase):
             for name in re.findall(r'\.local/share/boxen/([A-Za-z0-9_-]+\.(?:sh|py|lua))', source.read_text()):
                 with self.subTest(source=source.name, name=name):
                     self.assertIn(name, shipped)
-
-    def test_plugin_list_matches_the_launcher(self):
-        plugins = re.search(r'^PLUGINS="\$KITS"', CLI, re.M)
-        self.assertIsNotNone(plugins)
-        listed = [line.split("\t")[0] for line in (ROOT / "plugins.tsv").read_text().splitlines()[1:]]
-        self.assertEqual(listed, KITS)
 
     def test_identity_is_a_separate_volume_and_no_credentials_are_bundled(self):
         volume = spec("tailscale")["volumes"][0]
