@@ -477,8 +477,11 @@ ones, pinned in `tests/host/pins.sh`). `BOXEN_AGENT` picks what the box
 starts: claude, codex, grok, or a shell when unset. The launcher does not use
 them yet; this README covers them once it does. The first build takes 15 to 30
 minutes (Chrome and nvChad take the longest); after that, changing a runtime
-script rebuilds only the last step. Three host gates check them on a machine
-with sbx and Docker:
+script rebuilds only the last step. Every box also has the
+[botfight](https://github.com/MixTapeSoftware/skills/tree/main/botfight) skill
+for Claude and Codex. It is not pinned: each build takes the skills
+repository's latest `main`. Three host gates check them on a machine with sbx
+and Docker:
 
 ~~~bash
 bash tests/host/tools-gate.sh        # every tool baked in, build and rebuild times
