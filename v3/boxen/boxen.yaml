@@ -1,0 +1,60 @@
+# syntax=docker/sandbox-kit:3
+schemaVersion: "3"
+displayName: Boxen tools
+description: Build libraries, mise, Node, Go, zsh and every Boxen tool, baked in; agents come as Docker's mixins
+kind: workload
+provides: ["boxen@1.0.0"]
+capabilities:
+  - type: com.docker.sandbox/sbx@1
+  - type: com.docker.sandbox/network-policy@2
+    config:
+      runtime:
+        allow:
+          # the v2 core list, unchanged (Ubuntu mirrors)
+          - github.com
+          - api.github.com
+          - raw.githubusercontent.com
+          - objects.githubusercontent.com
+          - release-assets.githubusercontent.com
+          - codeload.github.com
+          - archive.ubuntu.com:80
+          - security.ubuntu.com:80
+          - ports.ubuntu.com:80
+          - archive.ubuntu.com:443
+          - security.ubuntu.com:443
+          - ports.ubuntu.com:443
+          - download.docker.com
+          - cli.github.com
+          - nodejs.org
+          - registry.npmjs.org
+          - go.dev
+          - dl.google.com
+          - proxy.golang.org
+          - sum.golang.org
+          - storage.googleapis.com
+          - api.mason-registry.dev
+          - d5l0dvt14r5h8.cloudfront.net
+          - d2glxqk2uabbnd.cloudfront.net
+  - type: com.docker.sandbox/lifecycle@1
+    config:
+      install:
+        - command: bash /usr/local/share/boxen/sudo-policy.sh
+          user: "0"
+          env: [BOXEN_CLOUD]
+          description: Remove the agent's standing sudo (skipped when BOXEN_CLOUD=1)
+        - command: sh /usr/local/share/boxen/persist-env.sh
+          user: "0"
+          description: Source Boxen's environment from CLAUDE_ENV_FILE
+      startup:
+        - command: sh /usr/local/share/boxen/persist-env.sh
+          user: "0"
+          background: false
+          description: Re-add the environment line if sbx rewrote the file
+  - type: com.docker.sandbox/agent-context@1
+    config:
+      # The workload names the file; each agent mixin adds its own beside it.
+      filename: AGENTS.md
+      content: |
+        In a local Boxen sandbox sudo is not available; when a task needs root,
+        ask the user to run it from a session opened with boxen shell
+        --with-sudo. In a Docker Cloud sandbox (BOXEN_CLOUD=1) sudo works.

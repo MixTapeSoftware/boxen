@@ -259,7 +259,7 @@ No credential comes from the host by default. Each sandbox gets its own.
 Claude Code and Codex sandboxes each sign in to your subscription separately,
 inside the sandbox. `create` offers the sign-in when it finishes, and so does
 entering a sandbox that is not signed in (`boxen NAME`, `boxen shell NAME`,
-`boxen run NAME`). Claude Code uses `claude auth login --claudeai`; Codex uses
+`boxen run NAME`). Claude Code uses `claude auth login`; Codex uses
 `codex login --device-auth`, a code you enter in your browser, since its usual
 `localhost` callback cannot reach a sandbox. Answer n to skip; the offer comes
 back next time.
@@ -467,5 +467,32 @@ Successful test sandboxes are removed; failed ones are stopped if SBX retained
 them. The disk check requires 3 GiB free with a cached base image or 6 GiB
 without one. Logs stay under ignored local/; a lock left by a dead run is
 reclaimed.
+
+### v3 kits (in progress)
+
+`v3/` holds the move to [v3 kits](https://docs.docker.com/ai/sandboxes/customize/):
+`v3/boxen` is a workload with every tool baked in, and each agent comes as
+Docker's agent mixin (`docker/sbx-kit-claude-mixin` and the Codex and Grok
+ones, pinned in `tests/host/pins.sh`). `BOXEN_AGENT` picks what the box
+starts: claude, codex, grok, or a shell when unset. The launcher does not use
+them yet; this README covers them once it does. Two host gates check them on a
+machine with sbx and Docker:
+
+~~~bash
+bash tests/host/compose-gate.sh      # the workload alone and with each agent mixin, locally
+BOXEN_CLOUD_POLICY_NOTE='your account network default' \
+  bash tests/host/cloud-compose-gate.sh   # Docker Cloud: stop, SSH forward, a real expiry
+~~~
+
+A sandbox made by hand looks like this:
+
+~~~bash
+sbx create --name try-v3 --cpus 4 --memory 4g --env BOXEN_AGENT=claude \
+  --kit docker.io/docker/sbx-kit-claude-mixin:2.1.267 ./v3/boxen
+~~~
+
+A cloud sandbox made from `v3/boxen` by hand also needs `--env BOXEN_CLOUD=1`.
+Without it the install hook removes the agent's sudo, and a cloud `exec`
+cannot run as root, so the sandbox has no way back to root.
 
 See [validation notes](docs/validation.md) for what was actually exercised.
