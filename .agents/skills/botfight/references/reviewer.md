@@ -42,7 +42,7 @@ Use the available GitHub integration to create actual PR review comments anchore
 
 Each inline comment contains a short issue title, importance score (1–10 using the fixer's scale), the concrete trigger and impact, and the suggested correction, followed by the reviewer attribution footer from `SKILL.md`. Report substantiated, actionable issues in the requested scope; skip speculative concerns and cosmetic churn. The fixer independently decides whether to fix or decline using its 6/10 threshold.
 
-Read prior threads before posting. Do not duplicate an existing finding, including one awaiting action or already declined, just because the head changed. A regression or new evidence can justify a new finding; link the prior discussion and explain what changed. Do not reply to or resolve existing threads. Human questions and conflicts belong in the user report with draft replies; do not open a replacement bot thread to bypass a human decision.
+Read prior threads before posting. Formatter comments restate existing findings; they are not findings to deduplicate against. Do not duplicate an existing finding, including one awaiting action or already declined, just because the head changed. A regression or new evidence can justify a new finding; link the prior discussion and explain what changed. Do not reply to or resolve existing threads. Human questions and conflicts belong in the user report with draft replies; do not open a replacement bot thread to bypass a human decision.
 
 The review summary states the reviewed SHA, scope, finding count, and any inspection limitations. Before its attribution footer, include this machine-readable completion marker with the actual SHA and scope ID:
 

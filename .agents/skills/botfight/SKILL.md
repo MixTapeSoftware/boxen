@@ -1,27 +1,28 @@
 ---
 name: botfight
-description: Use when asked to run an unattended PR loop — e.g. "run botfight", "fight the bots on this PR", "botfight fixer", or "botfight reviewer" — including repeated reviews focused on security or other user-supplied instructions.
+description: Use when asked to run an unattended PR loop — e.g. "run botfight", "fight the bots on this PR", "botfight fixer", "botfight reviewer", or "botfight formatter" — including repeated reviews focused on security or other user-supplied instructions.
 ---
 
 # Botfight — unattended PR review loop
 
 ## Overview
 
-Botfight has two modes: **fixer** (the default coordinator) addresses bot findings on the PR; **reviewer** watches for new PR commits and posts inline findings for the fixer to address. Both run unattended and leave human interactions for the user. Comments post from the user's GitHub account, so automated attribution and the bot/human distinction matter in both modes.
+Botfight has three modes: **fixer** (the default coordinator) addresses bot findings on the PR; **reviewer** watches for new PR commits and posts inline findings for the fixer to address; **formatter** keeps a plain-English PR note current and posts clearer restatements of hard-to-follow bot comments. All run unattended and leave human interactions for the user. Comments post from the user's GitHub account, so automated attribution and the bot/human distinction matter in every mode.
 
-Both modes read review threads through GraphQL and post reviews and replies with request bodies. Through `gh`, send each body, including read-only GraphQL queries, as a JSON file with `gh api <endpoint> --input <file>.json` and never with `-f`/`-F` field flags, following the `gh api` rules in the root `AGENTS.md`.
+All modes read review threads through GraphQL and post reviews and replies with request bodies. Through `gh`, send each body, including read-only GraphQL queries, as a JSON file with `gh api <endpoint> --input <file>.json` and never with `-f`/`-F` field flags, following the `gh api` rules in the root `AGENTS.md`.
 
 ## Invocation and loop state
 
 - With no mode argument, use `fixer`. `/botfight` and `/botfight fixer` are equivalent.
-- Both modes default to checking every 5 minutes for 1.5 hours. Accept optional interval and duration arguments (for example, `/botfight fixer 10m 2h`). Existing `/botfight 10m 2h` invocations still work.
+- All modes default to checking every 5 minutes for 1.5 hours. Accept optional interval and duration arguments (for example, `/botfight fixer 10m 2h`). Existing `/botfight 10m 2h` invocations still work.
 - Reviewer accepts an optional PR number or URL and additional free-text review instructions: `/botfight reviewer [<PR-number-or-URL>] [<interval> <duration>] [<instructions>]`. For example, `/botfight reviewer 42 5m 1h focus on security and tenant isolation`. With no target, use the current branch's PR; with no instructions, perform a general code review. Instruction text starts at the first token that is neither a PR number or URL nor an interval-and-duration pair, and everything after a `--` is instruction text whatever it looks like; preserve the full instruction text.
 - `--skills <list>` takes everything after it as a comma-separated list of review areas, for example `/botfight reviewer 42 5m 1h --skills security, ui polish`. Put any PR target and timing before `--skills`. Each area becomes its own reviewer scope, reviewed with the closest matching skill available in the repository; see [references/reviewer.md](references/reviewer.md). Free-text instructions and `--skills` are alternatives.
-- Continuations carry the explicit mode: `fixer until <ISO-8601 deadline> every <interval>` or `reviewer <PR-URL> until <ISO-8601 deadline> every <interval>`, plus that mode's state. Legacy continuations without a mode remain `fixer`.
+- Formatter accepts an optional PR number or URL: `/botfight formatter [<PR-number-or-URL>] [<interval> <duration>]`. See [references/formatter.md](references/formatter.md).
+- Continuations carry the explicit mode: `fixer until <ISO-8601 deadline> every <interval>`, `reviewer <PR-URL> until <ISO-8601 deadline> every <interval>`, or `formatter <PR-URL> until <ISO-8601 deadline> every <interval>`, plus that mode's state. Legacy continuations without a mode remain `fixer`.
 
 On first invocation: get the current UTC time (`date -u +%Y-%m-%dT%H:%M:%SZ`), compute `deadline = now + duration`, and carry it in every wakeup prompt. Never recompute the deadline on a continuation — parse it from the args.
 
-**Select the mode before any PR mutation.** For `reviewer`, read [references/reviewer.md](references/reviewer.md) and follow that loop with the shared attribution below. All fixer sections below apply only to `fixer`; reviewer never runs the fixer's create/fix flow.
+**Select the mode before any PR mutation.** For `reviewer`, read [references/reviewer.md](references/reviewer.md); for `formatter`, read [references/formatter.md](references/formatter.md). Follow that loop with the shared attribution below. All fixer sections below apply only to `fixer`; reviewer and formatter never run the fixer's create/fix flow. Formatting is always done in a dedicated sub-agent, never inline in a fixer or reviewer session.
 
 ## Fixer loop mechanics
 
@@ -31,7 +32,7 @@ On first invocation: get the current UTC time (`date -u +%Y-%m-%dT%H:%M:%SZ`), c
 3. **Run an iteration** (below).
 4. **Check exit conditions** — exit when any holds:
    - PR merged or closed by someone else.
-   - Clean: CI green, zero unresolved bot threads, no new bot comments to process, **and** no push since the previous iteration — after any push, run at least one more interval so review bots get a pass at the new commit. On the first invocation, or whenever the carried previous head SHA is absent (a legacy continuation or lost state), there is no previous iteration to compare against: treat the branch as just-pushed, so a clean exit always requires at least one full interval after the loop's last push.
+   - Clean: CI green, zero unresolved bot threads, no new bot comments to process (formatter comments don't count), **and** no push since the previous iteration — after any push, run at least one more interval so review bots get a pass at the new commit. On the first invocation, or whenever the carried previous head SHA is absent (a legacy continuation or lost state), there is no previous iteration to compare against: treat the branch as just-pushed, so a clean exit always requires at least one full interval after the loop's last push.
    - Deadline reached.
    - Blocked on something only the user can decide.
 5. **If not exiting**: use the harness's recurring-wakeup capability when one is available. Set the delay to the interval, capped at the seconds remaining until the deadline; carry the continuation arguments `fixer until <deadline> every <interval>`, the original title from step 2, the previous head SHA, and a short status reason. If recurring wakeups are unavailable, continue in the foreground using bounded waits. Never claim the loop will continue after returning unless a wakeup was actually scheduled.
@@ -46,7 +47,7 @@ Each iteration addresses the existing PR: gather unresolved review threads, CI s
 For each thread and top-level comment, decide **bot or human** before doing anything else:
 
 - Bot: GitHub account type `Bot`, login ending in `[bot]`, or a known review/CI bot (`github-actions`, `vercel`, `render`).
-- Botfight comments from the user's account with the fixer or reviewer footer defined below also count as bot comments, including findings from a separate reviewer session. A quoted footer or bare mention of botfight does not count. Unsigned comments from that same account remain human.
+- Botfight comments from the user's account with the fixer, reviewer, or formatter footer defined below also count as bot comments, including findings from a separate reviewer session. Formatter comments are restatements, not findings: don't score, reply to, or count them, and they don't stop a bot thread from being resolved. A quoted footer or bare mention of botfight does not count. Unsigned comments from that same account remain human.
 - Everything else — including any account you are not sure about — is **human**.
 
 Classify **whole threads, not openers**: a thread is a bot thread only if every comment in it is from a bot. One human reply anywhere in a bot-opened thread makes the entire thread human — report it, act on nothing in it, resolve nothing in it — even if you already scored the bot's finding. Signed reviewer findings receive the same scoring and handling as other bot findings. Review completion summaries, including zero-findings summaries, are status records and require no reply or fix.
@@ -90,6 +91,13 @@ Reviewer uses:
 ```
 ---
 🤖 botfight reviewer · <agent harness> (<exact model id when available>)
+```
+
+Formatter uses:
+
+```
+---
+🤖 botfight formatter · <agent harness> (<exact model id when available>)
 ```
 
 ## Fixer exit report
