@@ -893,7 +893,7 @@ create() {
       read_secret op_token '1Password token (blank to skip): '
     fi
     if has_plugin tailscale; then
-      printf '\nTailscale: a tagged auth key from https://login.tailscale.com/admin/settings/keys\n'
+      printf '\nTailscale: an auth key tagged tag:boxen from https://login.tailscale.com/admin/settings/keys\n'
       read_secret ts_key 'Tailscale auth key (blank to join later): '
       if [[ -n "$ts_key" ]] && ! has_plugin supabase-serve; then
         read_value ts_port 'Dev port to serve on :443 (blank to skip): '

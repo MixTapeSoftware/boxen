@@ -362,7 +362,7 @@ provisioning. Leave any blank to skip it.
 |---|---|---|
 | gh-auth | A fine-grained GitHub token (Contents read/write, Metadata read-only) | An sbx secret scoped to this sandbox; the `gh-auth` mixin declares it as a proxy-managed `GH_TOKEN`, so the proxy injects it and the sandbox sees a placeholder |
 | 1pass | A 1Password service account token | Inside the sandbox, for `op`; the agent can read it |
-| tailscale | A tagged auth key, and a dev port for :443 unless Supabase Serve is selected | Straight to the sandbox's tailnet join; not stored |
+| tailscale | An auth key tagged `tag:boxen`, and a dev port for :443 unless Supabase Serve is selected | Straight to the sandbox's tailnet join; not stored |
 
 Without a terminal, or after skipping, add them later:
 
@@ -449,7 +449,7 @@ Join through the browser/device flow:
 ./boxen tailscale status my-project
 ~~~
 
-Or pipe a tagged auth key directly from a secret manager:
+Or pipe an auth key tagged `tag:boxen` directly from a secret manager:
 
 ~~~bash
 op read 'op://Development/Tailscale/auth-key' |
@@ -460,10 +460,72 @@ The key travels on stdin into a temporary guest file with private permissions.
 Tailscale receives that file's path; the file is removed afterward. No auth
 key belongs in a kit, CLI argument, image, shell profile, or environment file.
 
-**A joined sandbox reaches whatever your tailnet ACLs allow, outside sbx's
-network policy.** Use a tagged key whose ACLs grant only what the sandbox
-needs, and no exit nodes or Funnel. The node has no operator, so the agent
-cannot change its settings; `join`, `serve` and `status` run as root.
+**The sandbox runs an agent you do not fully trust, and a joined sandbox is a
+node on your tailnet, outside sbx's network policy.** Three things keep that
+in check:
+
+1. **Every node is tagged `tag:boxen`.** Both joins pass `--advertise-tags`,
+   so the browser login must come from an owner of the tag and a key must
+   carry it. A tagged node has no user's identity: it gets none of your
+   access, and a Funnel grant to `autogroup:member` does not reach it. After
+   a join, Boxen reads the node back; unless its tags are exactly `tag:boxen`
+   and it has no Funnel grant, or if it cannot be read back at all, Boxen
+   logs it out and fails. Permissions come from every tag a node carries, so
+   `tag:boxen` plus another tag is refused too.
+2. **Your policy limits who reaches the node, and on which ports.** In
+   userspace mode, tailscaled forwards an incoming connection to the same
+   port on the guest's `127.0.0.1`: not only the served routes, but Postgres,
+   the dev server and anything the agent starts listening on. Add the
+   following to your policy (`./install` prints it too). It is an addition to
+   your existing rules, not a replacement for them: merge the `tagOwners` and
+   the acl into yours. Rules are additive, so any other rule that reaches
+   `tag:boxen`, such as Tailscale's default allow-all, still applies and
+   should go. The result allows only the served ports, and nothing from the
+   sandbox outward:
+
+   ~~~jsonc
+   {
+     "tagOwners": {"tag:boxen": ["autogroup:admin"]},
+     "acls": [
+       {
+         "action": "accept", "proto": "tcp",
+         "src": ["autogroup:member"],
+         "dst": ["tag:boxen:443,4410,4431,5432,5433,5434,8443"]
+       }
+     ]
+     // No "funnel" nodeAttrs entry may target tag:boxen or "*".
+   }
+   ~~~
+
+   A policy written with `grants` takes the same rule as
+   `{"src": ["autogroup:member"], "dst": ["tag:boxen"], "ip": ["tcp:443", …]}`.
+
+   There is more than one way to write this. A policy that already names who
+   may reach everything, such as
+   `{"action": "accept", "src": ["group:admin"], "dst": ["*:*"]}`, covers
+   sandboxes too, and the rule above adds nothing for those users; the
+   seven-port narrowing then applies only to members outside that group.
+   Whatever the shape, three things must hold: `tag:boxen` is in `tagOwners`,
+   no rule has `tag:boxen` as `src`, and no `funnel` nodeAttrs entry names it.
+   A `tests` entry with `"src": "tag:boxen"` and a `deny` list of your most
+   sensitive destinations is a useful tripwire for the second one: Tailscale
+   refuses to save a policy that breaks it. It checks only the destinations
+   you list, so it does not prove the rule holds everywhere. Read
+   [Tailscale's ACL docs](https://tailscale.com/kb/1018/acls) before editing.
+
+   If someone could add a node from Tailscale's side, your access rules come
+   from the same servers; [Tailnet Lock](https://tailscale.com/kb/1226/tailnet-lock)
+   covers that, and a key signed with `tailscale lock sign` works with
+   `--auth-key-stdin`.
+3. **Use `--tailscale` only on sandboxes that need previews.** The mixin
+   allows `*.tailscale.com`, which every tailnet shares, so an agent on such a
+   sandbox could join a tailnet of its own and move data through it. Boxen
+   cannot prevent that; the sbx network policy is the only control.
+
+On a local sandbox the node has no operator, so the agent cannot change its
+settings; `join`, `serve` and `status` run as root. A cloud sandbox keeps
+Docker's sudo (see [Sudo](#sudo)), so there the tag and your policy are the
+limits.
 
 ~~~bash
 ./boxen tailscale serve my-project 5173
@@ -494,8 +556,9 @@ environment as an image; it would carry the identity, and this wrapper
 deliberately has no template-export command.
 
 Tailscale works on cloud sandboxes too: `join`, `serve` and `status` run there
-through Docker's sudo. For a preview on your own laptop alone, `boxen net` is
-simpler; see [Cloud sandboxes](#cloud-sandboxes).
+through Docker's sudo, and so could the agent. For a preview on your own
+laptop alone, `boxen net` is simpler and keeps the sandbox off your tailnet;
+see [Cloud sandboxes](#cloud-sandboxes).
 
 Userspace networking avoids a tunnel device and uses a local SOCKS5 listener for
 outgoing tailnet connections. For an individual command:
