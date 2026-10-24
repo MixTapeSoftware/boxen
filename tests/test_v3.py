@@ -260,18 +260,15 @@ class BoxenWorkload(ScriptCase):
                 self.assertNotIn("export HTTP_PROXY=", script.read_text())
                 self.assertNotIn("export HTTPS_PROXY=", script.read_text())
 
-    def test_sudo_policy_is_an_install_hook_that_skips_cloud_boxes(self):
-        # Local boxes lose standing sudo at create; cloud boxes keep Docker's default.
+    def test_sudo_policy_is_an_install_hook(self):
+        # Boxes lose standing sudo at create, so the image ships Docker's sudoers untouched.
         self.assertNotIn("sudo-policy.sh", (V3 / "boxen/boxen.dockerfile").read_text())
         hook = next(h for h in hooks("boxen", "install") if "sudo-policy.sh" in command_text(h))
         self.assertEqual(hook["user"], "0")
-        self.assertIn("BOXEN_CLOUD", hook["env"])
+        self.assertNotIn("env", hook)
         text = (SCRIPTS / "sudo-policy.sh").read_text()
         self.assertIn("boxen-sudo-session", text)
-        self.fake("groupadd", 'echo "groupadd $*" >> "$HOME/calls"')
-        result = self.run_script("sudo-policy.sh", env={"BOXEN_CLOUD": "1"})
-        self.assertIn("keeping Docker's sudo", result.stdout + result.stderr)
-        self.assertFalse((self.directory / "calls").exists())
+        self.assertNotIn("BOXEN_CLOUD", text)
 
     def test_sudo_verify_needs_sudo_to_say_the_agent_is_not_allowed(self):
         cases = (('echo "User agent is not allowed to run sudo on box."; exit 1', True),
@@ -285,15 +282,13 @@ class BoxenWorkload(ScriptCase):
                 if not ok:
                     self.assertIn("agent", result.stderr)
 
-    def test_check_keeps_cloud_sudo_and_fails_an_unknown_agent(self):
+    def test_check_fails_standing_sudo_and_an_unknown_agent(self):
         self.fake("sudo", "exit 0")
-        cloud = self.run_script("check.sh", env={"BOXEN_CLOUD": "1", "BOXEN_AGENT": "bogus"}, ok=False).stdout
-        self.assertIn("PASS Docker's sudo (cloud sandbox)", cloud)
-        self.assertNotIn("No standing sudo", cloud)
-        self.assertIn("FAIL agent bogus is not one boxen knows", cloud)
-        local = self.run_script("check.sh", env={"BOXEN_AGENT": "shell"}, ok=False).stdout
-        self.assertIn("FAIL No standing sudo", local)
-        self.assertNotIn("is not one boxen knows", local)
+        out = self.run_script("check.sh", env={"BOXEN_AGENT": "bogus"}, ok=False).stdout
+        self.assertIn("FAIL No standing sudo", out)
+        self.assertIn("FAIL agent bogus is not one boxen knows", out)
+        out = self.run_script("check.sh", env={"BOXEN_AGENT": "shell"}, ok=False).stdout
+        self.assertNotIn("is not one boxen knows", out)
 
     def test_check_script_uses_the_new_helper_paths(self):
         text = (SCRIPTS / "check.sh").read_text()
@@ -520,23 +515,23 @@ esac
         self.assertFalse(any("existing-box" in call and "ls" not in call for call in calls), calls)
 
     def test_a_failed_listing_is_not_a_free_name(self):
-        result, calls = self.gate('claim fresh-box cloud; check dependent "$SBX_BIN" --cloud run -d --name fresh-box x', FAKE_LS_EXIT="7")
+        result, calls = self.gate('claim fresh-box; check dependent "$SBX_BIN" run -d --name fresh-box x', FAKE_LS_EXIT="7")
         self.assertEqual(result.returncode, 1)
         self.assertIn("FAIL claim fresh-box (sbx ls failed)", result.stdout)
         self.assertFalse(any("run" in call for call in calls), calls)
 
     def test_cleanup_removes_only_what_the_gate_made(self):
         # fresh-box is free at the claim and listed once the gate has made it.
-        result, calls = self.gate('claim fresh-box cloud; claim other-box; echo fresh-box >> "$FAKE_EXTRA"; '
-                                  'made fresh-box cloud; check fine true')
+        result, calls = self.gate('claim fresh-box; claim other-box; echo fresh-box >> "$FAKE_EXTRA"; '
+                                  'made fresh-box; check fine true')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("--cloud rm --force fresh-box", calls)
+        self.assertIn("rm --force fresh-box", calls)
         self.assertFalse(any("rm" in call and ("other-box" in call or "existing-box" in call) for call in calls), calls)
 
     def test_create_sandbox_claims_creates_and_registers_for_cleanup(self):
-        result, calls = self.gate('create_sandbox new-box cloud -- sh -c \'echo new-box >> "$FAKE_EXTRA"; "$SBX_BIN" --cloud run -d --name new-box x\'; check after true')
+        result, calls = self.gate('create_sandbox new-box -- sh -c \'echo new-box >> "$FAKE_EXTRA"; "$SBX_BIN" run -d --name new-box x\'; check after true')
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertIn("--cloud run -d --name new-box x", calls); self.assertIn("--cloud rm --force new-box", calls)
+        self.assertIn("run -d --name new-box x", calls); self.assertIn("rm --force new-box", calls)
         self.log.unlink(); self.extra.unlink()
         result, calls = self.gate('create_sandbox new-box -- false; check after true')
         self.assertEqual(result.returncode, 1)
@@ -546,10 +541,10 @@ esac
         self.assertFalse(any("rm" in call and "new-box" in call for call in calls), calls)
 
     def test_a_failed_create_that_left_a_sandbox_is_still_removed(self):
-        result, calls = self.gate('create_sandbox half-box cloud -- sh -c \'echo half-box >> "$FAKE_EXTRA"; exit 3\'; check after true')
+        result, calls = self.gate('create_sandbox half-box -- sh -c \'echo half-box >> "$FAKE_EXTRA"; exit 3\'; check after true')
         self.assertEqual(result.returncode, 1)
         self.assertNotIn("PASS after", result.stdout)
-        self.assertIn("--cloud rm --force half-box", calls)
+        self.assertIn("rm --force half-box", calls)
 
     def test_borrow_starts_only_a_listed_stopped_sandbox_and_never_makes_one(self):
         # sbx run --name with a name that is not listed would make a sandbox.
@@ -594,15 +589,6 @@ esac
         text = (ROOT / "tests/host/launcher-gate.sh").read_text()
         self.assertIn('borrow "$BOXEN_OLD_SANDBOX"', text)
         self.assertNotIn("sbx run", text)
-
-    def test_cleanup_keeps_a_cloud_sandbox_it_cannot_identify(self):
-        result, calls = self.gate('made ghost-box cloud; check fine true')          # never listed: no id recorded
-        self.assertIn("NOT removing ghost-box", result.stdout)
-        self.assertFalse(any("rm" in call for call in calls), calls)
-        self.extra.write_text("lost-box\n"); self.log.unlink()
-        result, calls = self.gate('made lost-box cloud; touch "$FAKE_LS_FAIL_FLAG"; check fine true')   # listing fails at exit
-        self.assertIn("NOT removing lost-box", result.stdout)
-        self.assertFalse(any("rm" in call for call in calls), calls)
 
     def test_agent_mixins_are_pinned_once_by_tag_and_digest(self):
         out = subprocess.run(["bash", "-c", "source lib/pins.sh; for a in claude codex grok; do "
@@ -788,7 +774,7 @@ class Cutover(unittest.TestCase):
         self.assertNotIn("in progress", text)
         self.assertIn("v3/boxen", text)
         self.assertIn("https://docs.docker.com/ai/sandboxes/customize/", text)
-        self.assertIn("## Cloud sandboxes", text)
+        self.assertIn("## Docker Cloud", text)
 
     def test_guest_script_tests_run_the_v3_copies(self):
         for test in ("test_agent_login.py", "test_tailscale.py"):

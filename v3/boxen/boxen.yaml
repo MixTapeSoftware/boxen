@@ -66,8 +66,7 @@ capabilities:
       install:
         - command: bash /usr/local/share/boxen/sudo-policy.sh
           user: "0"
-          env: [BOXEN_CLOUD]
-          description: Remove the agent's standing sudo (skipped when BOXEN_CLOUD=1)
+          description: Remove the agent's standing sudo
         - command: sh /usr/local/share/boxen/persist-env.sh
           user: "0"
           description: Source Boxen's environment from CLAUDE_ENV_FILE
@@ -81,6 +80,5 @@ capabilities:
       # The workload names the file; each agent mixin adds its own beside it.
       filename: AGENTS.md
       content: |
-        In a local Boxen sandbox sudo is not available; when a task needs root,
-        ask the user to run it from a session opened with boxen shell
-        --with-sudo. In a Docker Cloud sandbox (BOXEN_CLOUD=1) sudo works.
+        In a Boxen sandbox sudo is not available; when a task needs root, ask
+        the user to run it from a session opened with boxen shell --with-sudo.

@@ -75,12 +75,12 @@ wait_for() {
 # record LABEL CMD...: output to the log and the screen; never fails.
 record() { local label="$1"; shift; say "--- $label"; "$@" 2>&1 </dev/null | tee -a "$GATE_LOG"; return 0; }
 
-gate_listing() { if [[ "${1:-local}" == cloud ]]; then sbx --cloud ls --json; else sbx ls --json; fi; }
-# claim NAME [cloud]: end the gate unless NAME is free on that backend. A
-# listing that fails or cannot be parsed is not a free name.
+gate_listing() { sbx ls --json; }
+# claim NAME: end the gate unless NAME is free. A listing that fails or
+# cannot be parsed is not a free name.
 claim() {
-  local name="$1" backend="${2:-local}" listing status
-  if ! listing="$(gate_listing "$backend" </dev/null 2>>"$GATE_LOG")"; then
+  local name="$1" listing status
+  if ! listing="$(gate_listing </dev/null 2>>"$GATE_LOG")"; then
     gate_fail "claim $name (sbx ls failed)"; gate_abort
   fi
   printf '%s' "$listing" | jq -e --arg n "$name" 'any((.sandboxes? // .)[]?; .name == $n)' >/dev/null 2>&1
@@ -120,39 +120,29 @@ borrow() {
     *) gate_fail "borrow $name (status ${status:-<none>}; only running or stopped is left as found)"; gate_abort ;;
   esac
 }
-# made NAME [cloud]: this gate created NAME; only these are ever removed.
+# made NAME: this gate created NAME; only these are ever removed.
 made() {
-  local name="$1" backend="${2:-local}" id=""
-  if [[ "$backend" == cloud ]]; then id="$(gate_id "$name")" || id=""; fi
-  GATE_MADE+=("$backend $name ${id:--}")
-  say "made $name ($backend${id:+, $id})"
+  GATE_MADE+=("$1")
+  say "made $1"
 }
-# gate_id NAME: the cloud id listed for NAME (empty if not listed); fails
-# when the listing cannot be read.
-gate_id() {
-  local listing
-  listing="$(sbx --cloud ls --json </dev/null 2>/dev/null)" || return 1
-  printf '%s' "$listing" | jq -r --arg n "$1" '(.sandboxes? // .)[]? | select(.name == $n) | .id // empty'
-}
-# gate_listed_now NAME [cloud]: true when the backend now lists NAME.
+# gate_listed_now NAME: true when sbx now lists NAME.
 gate_listed_now() {
-  gate_listing "${2:-local}" </dev/null 2>/dev/null |
+  gate_listing </dev/null 2>/dev/null |
     jq -e --arg n "$1" 'any((.sandboxes? // .)[]?; .name == $n)' >/dev/null 2>&1
 }
-# create_sandbox NAME [cloud] -- CMD...: the one way a gate makes a sandbox.
+# create_sandbox NAME -- CMD...: the one way a gate makes a sandbox.
 create_sandbox() {
-  local name="$1" backend=local
+  local name="$1"
   shift
-  if [[ "${1:-}" == cloud ]]; then backend=cloud; shift; fi
   [[ "${1:-}" == -- ]] && shift
-  claim "$name" "$backend"
+  claim "$name"
   if ! check "create $name" "$@"; then
     # The name was free a moment ago, so a sandbox there now is this
     # attempt's partial create: record it so cleanup removes it.
-    if gate_listed_now "$name" "$backend"; then made "$name" "$backend"; fi
+    if gate_listed_now "$name"; then made "$name"; fi
     gate_abort
   fi
-  made "$name" "$backend"
+  made "$name"
 }
 
 gate_abort() { say "Stopping: later steps depend on that one."; gate_end; }
@@ -161,25 +151,9 @@ gate_end() {
   exit $((GATE_FAILED > 0))
 }
 gate_cleanup() {
-  local entry backend name id current
+  local name
   if declare -F cleanup >/dev/null; then cleanup </dev/null || true; fi
-  for entry in "${GATE_MADE[@]+"${GATE_MADE[@]}"}"; do
-    read -r backend name id <<< "$entry"
-    if [[ "$backend" == cloud ]]; then
-      # Remove only what is confirmed to be the sandbox this gate made.
-      if [[ "$id" == - ]]; then
-        say "NOT removing $name: its id was never read; check sbx --cloud ls and remove it by hand"; continue
-      fi
-      if ! current="$(gate_id "$name")"; then
-        say "NOT removing $name: sbx --cloud ls failed; check it and remove $id by hand"; continue
-      fi
-      if [[ -z "$current" ]]; then say "$name is already gone"; continue; fi
-      if [[ "$current" != "$id" ]]; then
-        say "NOT removing $name: its id is now $current, not the $id this gate made"; continue
-      fi
-      sbx --cloud rm --force "$name" </dev/null >>"$GATE_LOG" 2>&1 || say "NOTE could not remove $name; remove it with sbx --cloud rm"
-    else
-      sbx rm --force "$name" </dev/null >>"$GATE_LOG" 2>&1 || say "NOTE could not remove $name; remove it with sbx rm"
-    fi
+  for name in "${GATE_MADE[@]+"${GATE_MADE[@]}"}"; do
+    sbx rm --force "$name" </dev/null >>"$GATE_LOG" 2>&1 || say "NOTE could not remove $name; remove it with sbx rm"
   done
 }
