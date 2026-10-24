@@ -28,6 +28,8 @@ class TailscaleControl(unittest.TestCase):
             FAKE_READY="1", FAKE_UP_EXIT="0", FAKE_SERVE_FAIL_AT="0",
             # What the control plane says about this node after `up`.
             FAKE_SELF_TAGS="tag:boxen", FAKE_SELF_FUNNEL_CAP="",
+            # How reading the node back fails: an exit status, or junk output.
+            FAKE_SELF_STATUS_EXIT="0", FAKE_SELF_JUNK="",
             # Never read a real guest's preset when the tests run inside a sandbox.
             BOXEN_SERVE_PRESET_FILE=str(self.directory / "serve-preset"),
         )
@@ -45,6 +47,11 @@ for arg in args:
 with log.open("a") as output:
     output.write(json.dumps(entry) + "\\n")
 if args[0] == "status" and "--self" in args:
+    if os.environ["FAKE_SELF_STATUS_EXIT"] != "0":
+        sys.exit(int(os.environ["FAKE_SELF_STATUS_EXIT"]))
+    if os.environ["FAKE_SELF_JUNK"]:
+        print(os.environ["FAKE_SELF_JUNK"])
+        sys.exit(0)
     me = {"HostName": "test-node", "DNSName": "test-node.tail.ts.net."}
     if os.environ["FAKE_SELF_TAGS"]:
         me["Tags"] = os.environ["FAKE_SELF_TAGS"].split(",")
@@ -150,9 +157,12 @@ print(path)
         self.assertEqual(self.calls("up"), [{"args": ["up", "--hostname=test-node", "--advertise-tags=tag:boxen"]}])
         self.assertEqual(len(self.calls("serve")), 7)
 
-    def assert_join_refused(self, message):
+    def assert_join_refused(self, message, key=False):
         self.env["BOXEN_SERVE_PRESET"] = "supabase"
-        result = self.run_control("join", "test-node", ok=False)
+        if key:
+            result = self.run_control("join", "test-node", "--auth-key-stdin", stdin="tskey-fake\n", ok=False)
+        else:
+            result = self.run_control("join", "test-node", ok=False)
         self.assertIn(message, result.stderr)
         # The node leaves the tailnet rather than staying joined in a state
         # the policy did not intend; nothing is served first.
@@ -166,9 +176,29 @@ print(path)
         self.env["FAKE_SELF_TAGS"] = ""
         self.assert_join_refused("tag:boxen")
 
+    def test_untagged_node_from_a_key_join_is_refused_too(self):
+        self.env["FAKE_SELF_TAGS"] = ""
+        self.assert_join_refused("tag:boxen", key=True)
+
     def test_node_with_a_different_tag_is_refused(self):
         self.env["FAKE_SELF_TAGS"] = "tag:server"
         self.assert_join_refused("tag:boxen")
+
+    def test_node_with_an_extra_tag_is_refused(self):
+        # Permissions come from every tag, so tag:boxen plus another is not
+        # the identity the policy snippet describes.
+        self.env["FAKE_SELF_TAGS"] = "tag:boxen,tag:server"
+        self.assert_join_refused("tag:boxen")
+
+    def test_unverifiable_node_is_logged_out(self):
+        # If the node cannot be read back after up, it stays joined with
+        # whatever it was granted unless the script leaves.
+        for name, env in (("status exits", {"FAKE_SELF_STATUS_EXIT": "23"}),
+                          ("status prints junk", {"FAKE_SELF_JUNK": "not json"})):
+            with self.subTest(name):
+                self.setUp()
+                self.env.update(env)
+                self.assert_join_refused("Could not verify")
 
     def test_node_granted_funnel_is_logged_out_and_refused(self):
         # Funnel is granted by a nodeAttrs entry in the policy; the control

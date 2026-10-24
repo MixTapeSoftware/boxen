@@ -24,18 +24,20 @@ wait_for_daemon() {
     sleep 1
   done
 }
-# What the control plane granted this node, after up. The tag check catches
-# a browser login by someone who does not own the tag and a key tagged
-# otherwise; the Funnel check catches a nodeAttrs entry that would let a
-# sudo-capable agent publish the sandbox to the internet.
+# What the control plane granted this node, after up. Permissions come from
+# every tag, so the tag set must be exactly the one tag: that catches a
+# browser login by someone who does not own it and a key tagged otherwise or
+# additionally. The Funnel check catches a nodeAttrs entry that would let a
+# sudo-capable agent publish the sandbox to the internet. A node that cannot
+# be read back leaves too; it is joined with whatever it was granted.
 verify_node() {
   local self tags funnel
-  self="$(tailscale status --self --peers=false --json)" || fail 'Could not read the node status'
-  tags="$(printf '%s' "$self" | jq -r '.Self.Tags // [] | .[]')"
+  self="$(tailscale status --self --peers=false --json)" || leave 'Could not verify the node after joining: tailscale status failed'
+  tags="$(printf '%s' "$self" | jq -r '.Self.Tags // [] | join(",")')" || leave 'Could not verify the node after joining: unreadable status'
   funnel="$(printf '%s' "$self" | jq -r '.Self.CapMap // {} | keys[]
-    | select(. == "funnel" or startswith("https://tailscale.com/cap/funnel"))')"
-  printf '%s\n' "$tags" | grep -Fxq -- "$tag" ||
-    leave "The node joined without $tag (tags: ${tags:-none}). Log in as an owner of $tag, or use a key tagged $tag."
+    | select(. == "funnel" or startswith("https://tailscale.com/cap/funnel"))')" || leave 'Could not verify the node after joining: unreadable status'
+  [[ "$tags" == "$tag" ]] ||
+    leave "The node joined with tags [${tags:-none}] instead of exactly $tag. Log in as an owner of $tag, or use a key tagged only $tag."
   [[ -z "$funnel" ]] ||
     leave "The tailnet policy grants this node Funnel, which could publish the sandbox to the internet; remove $tag from the funnel nodeAttrs."
 }

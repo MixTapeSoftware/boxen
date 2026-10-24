@@ -468,8 +468,10 @@ in check:
    so the browser login must come from an owner of the tag and a key must
    carry it. A tagged node has no user's identity: it gets none of your
    access, and a Funnel grant to `autogroup:member` does not reach it. After
-   a join, Boxen reads the node back; if it is untagged, tagged otherwise, or
-   granted Funnel, Boxen logs it out and fails.
+   a join, Boxen reads the node back; unless its tags are exactly `tag:boxen`
+   and it has no Funnel grant, or if it cannot be read back at all, Boxen
+   logs it out and fails. Permissions come from every tag a node carries, so
+   `tag:boxen` plus another tag is refused too.
 2. **Your policy limits who reaches the node, and on which ports.** In
    userspace mode, tailscaled forwards an incoming connection to the same
    port on the guest's `127.0.0.1`: not only the served routes, but Postgres,
@@ -505,8 +507,10 @@ in check:
    seven-port narrowing then applies only to members outside that group.
    Whatever the shape, three things must hold: `tag:boxen` is in `tagOwners`,
    no rule has `tag:boxen` as `src`, and no `funnel` nodeAttrs entry names it.
-   A `tests` entry with `"src": "tag:boxen"` and a `deny` list pins the second
-   one; Tailscale refuses to save a policy that breaks it. Read
+   A `tests` entry with `"src": "tag:boxen"` and a `deny` list of your most
+   sensitive destinations is a useful tripwire for the second one: Tailscale
+   refuses to save a policy that breaks it. It checks only the destinations
+   you list, so it does not prove the rule holds everywhere. Read
    [Tailscale's ACL docs](https://tailscale.com/kb/1018/acls) before editing.
 
    If someone could add a node from Tailscale's side, your access rules come
