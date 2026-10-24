@@ -238,8 +238,8 @@ print(path)
         self.assertEqual(len(self.calls("serve")), 2)
 
     def test_preset_is_read_from_the_guest_file_when_the_environment_is_reset(self):
-        # On a cloud sandbox the helper runs under sudo -n, which drops
-        # BOXEN_SERVE_PRESET; the tailscale mixin records it at create.
+        # The root helper may run without BOXEN_SERVE_PRESET in its
+        # environment; the tailscale mixin records it at create.
         (self.directory / "serve-preset").write_text("supabase\n")
         result = self.run_control("serve", "8000", ok=False)
         self.assertIn("Supabase preset", result.stderr)

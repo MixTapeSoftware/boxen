@@ -17,8 +17,8 @@ capabilities:
   - type: com.docker.sandbox/lifecycle@1
     config:
       install:
-        # On a cloud sandbox the helper runs under sudo -n, which resets the
-        # environment, so the preset chosen at create is kept in a file.
+        # The root helper may not see create's environment, so the preset
+        # chosen at create is kept in a file.
         - command: [sh, -c, 'printf "%s\n" "${BOXEN_SERVE_PRESET:-}" > /etc/boxen/serve-preset']
           user: "0"
           env: [BOXEN_SERVE_PRESET]

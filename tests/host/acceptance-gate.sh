@@ -3,27 +3,20 @@
 # committed revision, as one result. Passes from before a source or image
 # change do not count, so this repeats them all. Preconditions come first and
 # each ends the run, so nothing expensive starts after one fails. Several
-# hours; the cold build and the cloud gates dominate. Needs everything the
-# gates need, plus:
-#   local/validation/day2-probe.result   from tests/host/day2-probe.sh (start, then check a day later)
-#   GH_TEST_TOKEN, BOXEN_TEST_PRIVATE_REPO, BOXEN_CLOUD_POLICY_NOTE   for cloud-gate.sh
-# Run from anywhere:
+# hours; the cold build dominates. Needs everything the gates need. Run from
+# anywhere:
 #   bash tests/host/acceptance-gate.sh
 source "$(dirname "$0")/lib.sh"
 source "$(dirname "$0")/../../lib/pins.sh"
 cd "$(dirname "$0")/../.." || exit 2
 gate_begin acceptance-gate
 
-GATES="compose-gate.sh cloud-compose-gate.sh tools-gate.sh mixins-gate.sh launcher-gate.sh cloud-gate.sh expiry-gate.sh smoke-gate.sh update-gate.sh"
+GATES="compose-gate.sh tools-gate.sh mixins-gate.sh launcher-gate.sh smoke-gate.sh update-gate.sh"
 BASE="$(sed -n 's/^FROM \(docker\/sandbox-templates:shell-docker@sha256:[0-9a-f]*\).*/\1/p' v3/boxen/boxen.dockerfile)"
 index_digest() { docker buildx imagetools inspect "$1" --format '{{json .Manifest}}' | jq -r .digest; }
-cloud_inputs() { [[ -n "${GH_TEST_TOKEN:-}" && -n "${BOXEN_TEST_PRIVATE_REPO:-}" && -n "${BOXEN_CLOUD_POLICY_NOTE:-}" ]]; }
 
 say "=== 1. preconditions"
 must 'clean tree' test -z "$(git status --porcelain)"
-must 'day-2 result recorded' test -s "$GATE_DIR/day2-probe.result"
-record 'day-2 result' cat "$GATE_DIR/day2-probe.result"
-must 'cloud gate inputs' cloud_inputs
 record 'revision' git rev-parse HEAD
 must 'the Dockerfile pins its base by digest' test -n "$BASE"
 record 'base image' printf '%s\n' "$BASE"

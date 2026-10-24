@@ -14,7 +14,6 @@ verify() {
   return 1
 }
 if [[ "${1:-}" == verify ]]; then verify; exit; fi
-if [[ "${BOXEN_CLOUD:-0}" == 1 ]]; then echo "boxen: cloud sandbox, keeping Docker's sudo for the agent"; exit 0; fi
 groupadd -f _sudo
 {
   printf '%%_sudo ALL=(ALL) NOPASSWD: ALL\n'

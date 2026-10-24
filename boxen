@@ -15,7 +15,6 @@ resolve() {
 PROJECT_DIR="$(cd "$(dirname "$(resolve "${BASH_SOURCE[0]}")")" && pwd)"
 SBX_BIN="${SBX_BIN:-sbx}"
 DOCKER_BIN="${DOCKER_BIN:-docker}"
-SSH_BIN="${SSH_BIN:-ssh}"
 source "$PROJECT_DIR/lib/pins.sh"
 source "$PROJECT_DIR/lib/prompt.sh"
 source "$PROJECT_DIR/lib/cli.sh"

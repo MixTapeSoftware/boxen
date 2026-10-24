@@ -19,10 +19,6 @@ REGISTRY="$STATE_DIR/sandboxes"
 LOG_DIR="$STATE_DIR/logs"
 CRON_TAG="# boxen-update-all"
 UPDATE_SCRIPT='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get upgrade -y'
-TUNNEL_STATE="$STATE_DIR/tunnels"
-# The app and Supabase's local ports, as boxen tailscale serve NAME supabase routes them.
-SUPABASE_PORTS="3000 3010 3001 54321 54323 54324 8000"
-TTL_MESSAGE='BOXEN_CLOUD_TTL must be hours from 1 to 24 (8 or 8h) or minutes from 5 to 59 (5m)'
 
 die() { printf 'boxen: %s\n' "$*" >&2; exit 1; }
 log() { printf '[+] %s\n' "$*"; }
@@ -30,14 +26,11 @@ warn() { printf 'boxen: %s\n' "$*" >&2; }
 # Call sbx by the path need_sbx resolved. Not `command sbx`: in Bash 3.2 a
 # failing `command` inside a function exits under set -e even within ||.
 SBX_PATH=""
-# 1 sends every sbx call to Docker Cloud. create --cloud sets it; need_sandbox
-# sets it from the registry, so later commands follow the sandbox.
-CLOUD=0
-sbx() { if [[ "$CLOUD" == 1 ]]; then "$SBX_PATH" --cloud "$@"; else "$SBX_PATH" "$@"; fi; }
+sbx() { "$SBX_PATH" "$@"; }
 need_sbx() {
   SBX_PATH="$(type -P "$SBX_BIN")" || die 'Install sbx and run sbx login first; see README.md.'
 }
-# sbx builds local v3 kits with Docker, for local and cloud sandboxes alike.
+# sbx builds the v3 kits with Docker.
 docker_builder_ok() { "$DOCKER_BIN" info >/dev/null 2>&1 && "$DOCKER_BIN" buildx version >/dev/null 2>&1; }
 need_docker() { docker_builder_ok || die 'Install Docker and start it; sbx builds local v3 kits with it.'; }
 need_jq() { command -v jq >/dev/null 2>&1 || die "Install jq; $1 reads sbx ls --json."; }
@@ -90,9 +83,6 @@ boxen create NAME [DIRECTORY] [options]      (also: init, -i)
   --gh-token-stdin               Read the GitHub token from stdin's first line
   --open-network                 Allow every host (sbx --allow-network '**');
                                  kit rules then add nothing
-  --cloud                        Create in Docker Cloud: copy or empty workspace,
-                                 keeps sudo, stops (never deletes) after
-                                 BOXEN_CLOUD_TTL (hours 1-24, default 8; or 5m-59m)
   --cpus N --memory SIZE         Default: 4 CPUs (at most the host's), 4g
   --ack-env                      Copy .env files without asking
   --copy-all                     Also copy node_modules, deps, _build and other
@@ -106,10 +96,7 @@ boxen shell [--with-sudo] NAME [COMMAND...]  (also: -s) --with-sudo grants
 boxen run NAME [-- ARGS...]                  Attach to its agent
 boxen exec NAME COMMAND [ARGS...]            Run a command
 boxen net NAME [-b ADDR|-H HOST] [-l] [-r PORT] [PORT|HOST:SANDBOX ...]
-                                             (also: -n) Publish ports on the host;
-                                             on a cloud sandbox, an SSH tunnel to
-                                             127.0.0.1 here (supabase forwards the
-                                             seven Supabase ports; no ports reopens)
+                                             (also: -n) Publish ports on the host
 boxen env NAME VAR                           (also: -e) Set a variable; prompts silently
 boxen stop NAME                              (also: kill, -k)
 boxen kill-all                               (also: -ka) Stop all boxen sandboxes
@@ -122,7 +109,7 @@ boxen ls                                     List sandboxes
 boxen check NAME                             Check installed plugins
 boxen plugins                                List the plugins and what they install
 boxen validate                               Validate the v3 kits using the installed sbx
-boxen doctor [--cloud]                       Check prerequisites; --cloud needs no KVM
+boxen doctor                                 Check prerequisites
 
 boxen auth github NAME [--from-gh]           Store a fine-grained token (stdin or
                                              prompt), or source the host gh token
@@ -138,8 +125,7 @@ EOF
 
 # --- Sandboxes ---------------------------------------------------------------
 
-# On the backend CLOUD selects: 0 when NAME is listed, 1 when it is not, 2
-# when the listing fails.
+# 0 when NAME is listed, 1 when it is not, 2 when the listing fails.
 listed() {
   local names
   names="$(sbx ls --quiet </dev/null)" || return 2
@@ -156,83 +142,38 @@ sandbox_exists() {
 need_sandbox() {
   valid_name "$1"
   need_sbx
-  if is_cloud "$1"; then CLOUD=1; else CLOUD=0; fi
   sandbox_exists "$1" ||
     die "No sandbox named $1 (see boxen ls). Nothing was created; use boxen create $1."
 }
-# The registry has one line per sandbox: NAME, or NAME<TAB>cloud.
+# The registry has one line per sandbox: its NAME. Older registries may carry
+# a second, tab-separated field; only the name is read.
 registered() { [[ -f "$REGISTRY" ]] && cut -f1 "$REGISTRY" | grep -Fxq -- "$1"; }
-is_cloud() { [[ -f "$REGISTRY" ]] && grep -Fxq -- "$1"$'\t'cloud "$REGISTRY"; }
 register() {
-  local line="$1"
-  if [[ "${2:-}" == cloud ]]; then line="$1"$'\t'cloud; fi
   mkdir -p "$STATE_DIR"
-  registered "$1" || printf '%s\n' "$line" >> "$REGISTRY"
+  registered "$1" || printf '%s\n' "$1" >> "$REGISTRY"
 }
 unregister() {
   [[ -f "$REGISTRY" ]] || return 0
   awk -F'\t' -v name="$1" '$1 != name' "$REGISTRY" > "$REGISTRY.tmp"
   mv "$REGISTRY.tmp" "$REGISTRY"
 }
-# "NAME STATUS BACKEND" for each sandbox boxen created that still exists. A
-# backend that cannot be listed is skipped with a warning, so one unreachable
-# service does not stop work on the other.
+# "NAME STATUS" for each sandbox boxen created that still exists.
 managed_states() {
-  local backend names json
+  local names json
   need_jq "$1"
   [[ -s "$REGISTRY" ]] || return 0
-  for backend in local cloud; do
-    if [[ "$backend" == cloud ]]; then
-      names="$(awk -F'\t' '$2 == "cloud" { print $1 }' "$REGISTRY")"; CLOUD=1
-    else
-      names="$(awk -F'\t' '$2 != "cloud" { print $1 }' "$REGISTRY")"; CLOUD=0
-    fi
-    [[ -n "$names" ]] || continue
-    if ! json="$(sbx ls --json </dev/null)"; then
-      warn "Could not list the $backend sandboxes; skipping them."; continue
-    fi
-    printf '%s' "$json" | jq -r --arg registry "$names" --arg backend "$backend" '
-      ($registry | split("\n") | map(select(length > 0))) as $names
-      | (.sandboxes? // .)[]? | select(.name as $n | $names | index($n)) | "\(.name) \(.status) \($backend)"'
-  done
-  CLOUD=0
-}
-has_cloud_rows() { [[ -f "$REGISTRY" ]] && grep -q $'\t'cloud'$' "$REGISTRY"; }
-# The cloud id sbx's SSH proxy logs in as.
-cloud_id() {
-  local json id
-  need_jq net
+  names="$(cut -f1 "$REGISTRY")"
   json="$(sbx ls --json </dev/null)" || die 'sbx ls failed; check boxen doctor.'
-  id="$(printf '%s' "$json" | jq -r --arg n "$1" '(.sandboxes? // .)[]? | select(.name == $n) | .id // .sandbox_id // empty')"
-  [[ -n "$id" ]] || die "sbx did not list an id for $1."
-  printf '%s\n' "$id"
+  printf '%s' "$json" | jq -r --arg registry "$names" '
+    ($registry | split("\n") | map(select(length > 0))) as $names
+    | (.sandboxes? // .)[]? | select(.name as $n | $names | index($n)) | "\(.name) \(.status)"'
 }
-# Root work: --user root locally; Docker's passwordless sudo in the cloud,
-# where sbx exec takes no --user. as_root NAME [-i] CMD...
+# Root work through sbx exec --user root. as_root NAME [-i] CMD...
 as_root() {
   local name="$1" stdin=()
   shift
   if [[ "${1:-}" == -i ]]; then stdin=(-i); shift; fi
-  if [[ "$CLOUD" == 1 ]]; then
-    sbx exec ${stdin[@]+"${stdin[@]}"} "$name" sudo -n "$@"
-  else
-    sbx exec ${stdin[@]+"${stdin[@]}"} --user root "$name" "$@"
-  fi
-}
-refuse_on_cloud() {
-  [[ "$CLOUD" == 0 ]] ||
-    die "$1 is not supported on cloud sandboxes: cloud secrets cannot run host commands; pipe a token instead"
-}
-# A stopped cloud sandbox resumes, with a fresh period, on the way in.
-resume_if_stopped() {
-  local json status
-  [[ "$CLOUD" == 1 ]] && command -v jq >/dev/null 2>&1 || return 0
-  json="$(sbx ls --json </dev/null)" || return 0
-  status="$(printf '%s' "$json" | jq -r --arg n "$1" '(.sandboxes? // .)[]? | select(.name == $n) | .status')"
-  [[ -n "$status" && "$status" != running ]] || return 0
-  # On stderr: stdout stays the command's own output, which scripts capture.
-  log "Resuming $1" >&2
-  sbx run -d --name "$1" </dev/null >/dev/null || die "Could not resume $1; see sbx --cloud ls."
+  sbx exec ${stdin[@]+"${stdin[@]}"} --user root "$name" "$@"
 }
 
 # --- Resources ---------------------------------------------------------------
@@ -383,14 +324,6 @@ host_wide_secret() {
   listing="$(sbx secret ls --global --service "$1" --json 2>/dev/null)" || return 1
   [[ -n "$listing" && "$(printf '%s' "$listing" | tr -d ' \t\n')" != *'"secrets":[]'* ]]
 }
-# A sandbox-scoped secret for SERVICE. A listing that fails stops here, before
-# anything is stored or created.
-secret_exists() {
-  local listing
-  listing="$(sbx secret ls --sandbox "$1" --service "$2" --json </dev/null)" ||
-    die "Could not list $1's secrets; nothing was created."
-  [[ -n "$listing" && "$(printf '%s' "$listing" | tr -d ' \t\n')" != *'"secrets":[]'* ]]
-}
 # Docker's Claude and Codex workloads prefer a host-wide secret, which then
 # takes the place of each sandbox's own subscription sign-in.
 warn_host_wide_agent_secret() {
@@ -441,240 +374,6 @@ write_guest_env() {
     mv "$file.tmp" "$file"' sh "$2"
 }
 
-# --- Cloud -------------------------------------------------------------------
-
-# BOXEN_CLOUD_TTL as sbx takes it: sets ttl (8h, 5m), ttl_seconds and
-# ttl_words, or dies. Whole hours 1-24 (8 or 8h, default 8) or minutes 5-59.
-cloud_ttl() {
-  local value="${BOXEN_CLOUD_TTL-8}" n
-  if [[ "$value" =~ ^([1-9][0-9]?)h?$ ]] && (( ${BASH_REMATCH[1]} <= 24 )); then
-    n="${BASH_REMATCH[1]}"; ttl="${n}h"; ttl_seconds=$((n * 3600))
-    if [[ "$n" == 1 ]]; then ttl_words='1 hour'; else ttl_words="$n hours"; fi
-  elif [[ "$value" =~ ^([1-9][0-9]?)m$ ]] && (( ${BASH_REMATCH[1]} >= 5 && ${BASH_REMATCH[1]} <= 59 )); then
-    n="${BASH_REMATCH[1]}"; ttl="${n}m"; ttl_seconds=$((n * 60)); ttl_words="$n minutes"
-  else
-    die "$TTL_MESSAGE"
-  fi
-}
-# Reads sbx ttl --json into TTL_LEFT, TTL_ROOM (Docker's creation-based
-# ceiling, as seconds from now) and TTL_AT.
-read_ttl() {
-  local json
-  json="$(sbx ttl --json "$1" </dev/null 2>/dev/null)" || return 1
-  TTL_LEFT="$(printf '%s' "$json" | jq -r '.expires_in_seconds // empty')"
-  TTL_ROOM="$(printf '%s' "$json" | jq -r '.max_remaining_seconds // empty')"
-  TTL_AT="$(printf '%s' "$json" | jq -r '.expires_at // empty')"
-  [[ "$TTL_LEFT" =~ ^[0-9]+$ && "$TTL_ROOM" =~ ^[0-9]+$ && -n "$TTL_AT" ]]
-}
-# NAME SECONDS ASKED RUN_RETURNED: after create's own exec steps, compare the
-# period the server holds with what is still owed (it starts at creation).
-# Extends a short one, never past Docker's ceiling, and reads it back; a
-# longer one is reported, since an extension can only lengthen. Sets
-# ttl_lines for the end of create and never fails it.
-cloud_ttl_report() {
-  local name="$1" asked_seconds="$2" since="$3" asked="$4" want add out
-  ttl_lines=()
-  if ! read_ttl "$name"; then
-    ttl_lines=("Could not read the TTL; see sbx --cloud ttl $name")
-    warn "${ttl_lines[0]}"
-    return 0
-  fi
-  want=$((asked_seconds - ($(date +%s) - since)))
-  if (( TTL_LEFT < want - 60 )); then
-    add=$(( (want - TTL_LEFT + 59) / 60 ))
-    if (( add > (TTL_ROOM - TTL_LEFT) / 60 )); then add=$(( (TTL_ROOM - TTL_LEFT) / 60 )); fi
-    if (( add > 0 )); then
-      if out="$(sbx ttl "+${add}m" "$name" </dev/null 2>&1)"; then
-        log "TTL came up short; extended by $add minutes"
-        read_ttl "$name" || warn "Could not read the TTL back; it was extended by $add minutes."
-      else
-        warn "Could not extend the TTL: $out"
-      fi
-    fi
-  fi
-  ttl_lines=("Stops at $TTL_AT (in $((TTL_LEFT / 3600))h$((TTL_LEFT % 3600 / 60))m; BOXEN_CLOUD_TTL asked for $asked)")
-  if (( TTL_LEFT > want + 60 )); then
-    ttl_lines+=('Docker set a longer period than asked; it cannot be shortened.')
-  fi
-}
-
-# Previews from a cloud sandbox are SSH tunnels to 127.0.0.1 on this laptop:
-# one background master per sandbox, forwards added and cancelled on it, and
-# the list kept in $TUNNEL_STATE/NAME.forwards ("HOST_PORT SANDBOX_PORT"
-# lines), recorded only after ssh accepted each one.
-ssh_base() {
-  ssh_cmd=("$SSH_BIN")
-  if [[ -n "${SSH_CONFIG:-}" ]]; then ssh_cmd+=(-F "$SSH_CONFIG"); fi
-}
-# sbx setup ssh once: until it has run, ssh does not know sbx_cloud's proxy.
-ssh_ready() {
-  local config
-  ssh_base
-  config="$("${ssh_cmd[@]}" -G sbx_cloud </dev/null 2>/dev/null || true)"
-  case "$config" in *proxycommand*sbx*) return 0 ;; esac
-  sbx setup ssh || die 'sbx --cloud setup ssh failed; run it yourself, then boxen net again.'
-}
-# The master's socket: a private directory of this user's, under TMPDIR
-# unless that makes the path too long for a socket (macOS allows 104 bytes).
-tunnel_socket() {
-  local dir="${TMPDIR:-/tmp}"
-  dir="${dir%/}/boxen-tunnels-$UID"
-  if (( ${#dir} + ${#1} + 6 > 100 )); then dir="/tmp/boxen-tunnels-$UID"; fi
-  (umask 077; mkdir -p "$dir")
-  [[ -d "$dir" && ! -L "$dir" && -O "$dir" ]] || die "$dir is not a private directory of yours; remove it and try again."
-  chmod 700 "$dir"
-  printf '%s/%s.sock\n' "$dir" "$1"
-}
-# Sets tunnel_id and tunnel_sock from the id recorded when the master opened;
-# false when no tunnel was ever opened for NAME.
-tunnel_known() {
-  [[ -s "$TUNNEL_STATE/$1.id" ]] || return 1
-  tunnel_id="$(cat "$TUNNEL_STATE/$1.id")"
-  tunnel_sock="$(tunnel_socket "$tunnel_id")"
-}
-tunnel_up() {
-  tunnel_known "$1" || return 1
-  ssh_base
-  "${ssh_cmd[@]}" -S "$tunnel_sock" -O check "$tunnel_id@sbx_cloud" </dev/null >/dev/null 2>&1
-}
-# tunnel_master NAME [replay]: opens the master unless it answers. Forwards
-# recorded for a master that died are dropped and named, or, with replay
-# (boxen net NAME with no ports), requested again on the new one.
-tunnel_master() {
-  local name="$1" replay="${2:-}" forwards="$TUNNEL_STATE/$1.forwards" stale="" host port
-  if tunnel_up "$name"; then return 0; fi
-  mkdir -p "$TUNNEL_STATE"
-  tunnel_id="$(cloud_id "$name")"
-  printf '%s\n' "$tunnel_id" > "$TUNNEL_STATE/$name.id"
-  tunnel_sock="$(tunnel_socket "$tunnel_id")"
-  ssh_base
-  # A live master this registry had lost track of: keep using it.
-  if "${ssh_cmd[@]}" -S "$tunnel_sock" -O check "$tunnel_id@sbx_cloud" </dev/null >/dev/null 2>&1; then return 0; fi
-  if [[ -s "$forwards" ]]; then stale="$(cat "$forwards")"; fi
-  rm -f "$forwards"
-  # A master that died uncleanly leaves its socket, and ssh would then start
-  # without multiplexing, so every forward would fail.
-  rm -f "$tunnel_sock"
-  # A file, not a pipe: ssh -f keeps its output open after it forks.
-  "${ssh_cmd[@]}" -f -N -M -S "$tunnel_sock" -o ExitOnForwardFailure=yes \
-    -o StrictHostKeyChecking=accept-new -o ServerAliveInterval=30 \
-    "$tunnel_id@sbx_cloud" </dev/null >/dev/null 2>"$TUNNEL_STATE/$name.ssh.log" || {
-    cat "$TUNNEL_STATE/$name.ssh.log" >&2
-    die "Could not open an SSH connection to $name; check sbx --cloud ls and sbx --cloud setup ssh."
-  }
-  [[ -n "$stale" ]] || return 0
-  if [[ -n "$replay" ]]; then
-    while read -r host port; do
-      [[ -n "$host" ]] || continue
-      tunnel_forward "$name" "$host" "$port"
-    done <<< "$stale"
-  else
-    warn "The tunnel to $name had closed; these forwards were dropped:"
-    while read -r host port; do
-      if [[ -n "$host" ]]; then printf '  127.0.0.1:%s -> %s\n' "$host" "$port" >&2; fi
-    done <<< "$stale"
-  fi
-}
-tunnel_forward() {
-  local name="$1" host="$2" port="$3" forwards="$TUNNEL_STATE/$1.forwards" out
-  if [[ -f "$forwards" ]] && awk -v h="$host" '$1 == h { found = 1 } END { exit !found }' "$forwards"; then
-    die "127.0.0.1:$host is already forwarded; boxen net $name -r $host first"
-  fi
-  ssh_base
-  if out="$("${ssh_cmd[@]}" -S "$tunnel_sock" -O forward -L "127.0.0.1:$host:127.0.0.1:$port" \
-      "$tunnel_id@sbx_cloud" </dev/null 2>&1)"; then
-    printf '%s %s\n' "$host" "$port" >> "$forwards"
-    log "Forwarded 127.0.0.1:$host to $name's port $port"
-  else
-    die "Forwarding 127.0.0.1:$host to $name's port $port failed (is the port free on this laptop?): $out"
-  fi
-}
-# The record goes only once ssh cancels the forward or the master is down.
-tunnel_cancel() {
-  local name="$1" host="$2" forwards="$TUNNEL_STATE/$1.forwards" port out
-  port="$(awk -v h="$host" '$1 == h { print $2; exit }' "$forwards" 2>/dev/null || true)"
-  [[ -n "$port" ]] || die "127.0.0.1:$host is not forwarded (see boxen net $name -l)"
-  if tunnel_up "$name"; then
-    ssh_base
-    if ! out="$("${ssh_cmd[@]}" -S "$tunnel_sock" -O cancel -L "127.0.0.1:$host:127.0.0.1:$port" \
-        "$tunnel_id@sbx_cloud" </dev/null 2>&1)" && tunnel_up "$name"; then
-      die "ssh did not cancel 127.0.0.1:$host, so it stays forwarded until the tunnel closes (boxen stop $name): $out"
-    fi
-  fi
-  awk -v h="$host" '$1 != h' "$forwards" > "$forwards.tmp"
-  mv "$forwards.tmp" "$forwards"
-  log "Removed 127.0.0.1:$host"
-}
-# Lists the recorded forwards; never opens anything.
-tunnel_list() {
-  local name="$1" forwards="$TUNNEL_STATE/$1.forwards" host port
-  if [[ ! -s "$forwards" ]]; then printf 'No forwards for %s; add one with boxen net %s PORT\n' "$name" "$name"; return; fi
-  if ! tunnel_up "$name"; then printf '(tunnel down; boxen net %s to reopen)\n' "$name"; fi
-  while read -r host port; do
-    if [[ -n "$host" ]]; then printf '127.0.0.1:%s -> %s\n' "$host" "$port"; fi
-  done < "$forwards"
-}
-# Closes the master if there is one and forgets its forwards; never fails.
-tunnel_close() {
-  if tunnel_known "$1" 2>/dev/null; then
-    ssh_base
-    "${ssh_cmd[@]}" -S "$tunnel_sock" -O exit "$tunnel_id@sbx_cloud" </dev/null >/dev/null 2>&1 || true
-  fi
-  rm -f "$TUNNEL_STATE/$1.forwards" "$TUNNEL_STATE/$1.id" "$TUNNEL_STATE/$1.ssh.log"
-}
-# Sets port_value from a port 1-65535, or dies.
-port_number() {
-  [[ "$1" =~ ^[0-9]+$ ]] && (( 10#$1 >= 1 && 10#$1 <= 65535 )) || die "Not a port: $1"
-  port_value=$((10#$1))
-}
-cloud_net() {
-  local name="$1" action=add arg host port port_value re='^([0-9]+)(:([0-9]+))?$' adds=() removes=()
-  shift
-  while [[ $# -gt 0 ]]; do
-    case "$1" in
-      -b|--bind|-H|--host) die 'cloud previews bind 127.0.0.1 only; share from your laptop with tailscale serve' ;;
-      -l|--list) action=list; shift ;;
-      -r|--remove)
-        need_value "$@"
-        [[ "$2" =~ $re ]] || die "Expected PORT or HOST_PORT:SANDBOX_PORT, got $2"
-        port_number "${BASH_REMATCH[1]}"; removes+=("$port_value"); shift 2 ;;
-      -h|--help) usage; return ;;
-      -*) die "Unknown net option: $1" ;;
-      supabase)
-        for port in $SUPABASE_PORTS; do adds+=("$port $port"); done
-        shift ;;
-      *)
-        [[ "$1" =~ $re ]] || die "Expected PORT, HOST_PORT:SANDBOX_PORT or supabase, got $1"
-        # port_number matches too, so take both halves first.
-        host="${BASH_REMATCH[1]}"; port="${BASH_REMATCH[3]:-${BASH_REMATCH[1]}}"
-        port_number "$host"; host="$port_value"
-        port_number "$port"; port="$port_value"
-        adds+=("$host $port"); shift ;;
-    esac
-  done
-  if [[ "$action" == list ]]; then tunnel_list "$name"; return; fi
-  for host in ${removes[@]+"${removes[@]}"}; do tunnel_cancel "$name" "$host"; done
-  if [[ ${#adds[@]} == 0 ]]; then
-    [[ ${#removes[@]} == 0 ]] || return 0
-    # No ports: reopen the tunnel with what was recorded, on a running box.
-    resume_if_stopped "$name"
-    ssh_ready
-    tunnel_master "$name" replay
-    tunnel_list "$name"
-    return
-  fi
-  # A tunnel needs a running box; listing and removing never start one.
-  resume_if_stopped "$name"
-  ssh_ready
-  tunnel_master "$name"
-  for arg in "${adds[@]}"; do
-    read -r host port <<< "$arg"
-    tunnel_forward "$name" "$host" "$port"
-  done
-  read -r host port <<< "${adds[0]}"
-  printf 'Open http://127.0.0.1:%s on this laptop; the tunnel lasts while this laptop is awake (boxen net %s -l)\n' "$host" "$name"
-}
-
 # --- Commands ----------------------------------------------------------------
 
 create() {
@@ -684,11 +383,10 @@ create() {
   # Nothing from the host is mounted unless asked: no workspace mount, no
   # shared skills store (sbx's own default is a read-only link).
   local skills=off mounts="" tui=1 chose_plugins=0 open_network=0
-  local cloud=0 cpus_given=0 memory_given=0 gh_stdin=0 gh_token_stored=0 listing=0
-  local ttl="" ttl_seconds=0 ttl_words="" run_returned=0 line
+  local gh_stdin=0
   local gh_token="" op_token="" ts_key="" ts_port="" port_re='^[0-9]+$'
   local selected="" item kit workload identity value home
-  local kit_args=() command=() items=() ttl_lines=()
+  local kit_args=() command=() items=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --agent) need_value "$@"; set_agent "$2"; shift 2 ;;
@@ -703,7 +401,6 @@ create() {
       # The token is the first line of stdin: no terminal, nothing in argv.
       --gh-token-stdin) gh_stdin=1; flagged="${flagged:+$flagged,}gh-auth"; shift ;;
       --open-network) open_network=1; shift ;;
-      --cloud) cloud=1; shift ;;
       -p|--path)
         need_value "$@"
         [[ -z "$directory" ]] || die 'Only one workspace directory is supported'
@@ -722,8 +419,8 @@ create() {
           *) die "The workspace is always /workspace (linked to /home/agent/workspace); --workspace $2 is not supported." ;;
         esac
         shift 2 ;;
-      --cpus) need_value "$@"; cpus="$2"; cpus_given=1; shift 2 ;;
-      --memory) need_value "$@"; memory="$2"; memory_given=1; shift 2 ;;
+      --cpus) need_value "$@"; cpus="$2"; shift 2 ;;
+      --memory) need_value "$@"; memory="$2"; shift 2 ;;
       --ack-env) ack_env=1; shift ;;
       --copy-all) copy_all=1; shift ;;
       --no-tui) tui=0; shift ;;
@@ -757,17 +454,6 @@ create() {
       die "Refusing to share $directory; choose a project directory with -p, or pass --no-copy."
   fi
   case "$mode" in copy|mount|clone|none) ;; *) die "Unknown mode: $mode (copy, mount, clone or none)" ;; esac
-  if [[ "$cloud" == 1 ]]; then
-    # Docker's cloud cannot reach this host's directories or skills store.
-    case "$mode" in
-      mount|clone) die "cloud sandboxes take a copied or empty workspace; --mode $mode shares this host's directory" ;;
-    esac
-    [[ "$skills" == off ]] || die "--skills shares this host's skills store, which cloud sandboxes cannot reach"
-    cloud_ttl
-    # The local 4-CPU default is not a cloud shape: Docker's applies unless asked.
-    if [[ "$cpus_given" == 0 ]]; then cpus=""; fi
-    if [[ "$memory_given" == 0 ]]; then memory=""; fi
-  fi
   if [[ "$mode" == clone ]]; then
     git -C "$directory" rev-parse --is-inside-work-tree >/dev/null 2>&1 ||
       die 'clone requires a Git worktree'
@@ -796,7 +482,7 @@ create() {
       *) log "RTK hooks apply to Claude and Codex; not added for $agent"; drop_plugin rtkplus ;;
     esac
   fi
-  if [[ "$cloud" == 0 && -z "$cpus" ]]; then
+  if [[ -z "$cpus" ]]; then
     cpus="$(host_cpus)"
     if [[ "$cpus" -gt 4 ]]; then cpus=4; fi
   fi
@@ -822,17 +508,10 @@ create() {
     clone) mounts="$directory (read-only, with a Git remote back to the host)" ;;
   esac
   if [[ "$skills" != off ]]; then mounts="${mounts:+$mounts; }sbx skills store ($skills)"; fi
-  if [[ "$cloud" == 1 ]]; then
-    # Cloud create refuses local kits; run composes them. Always stop, never
-    # delete, at expiry.
-    command=(run -d --name "$name" --ttl "$ttl" --on-timeout stop)
-  else
-    command=(create --name "$name" --skills "$skills")
-  fi
+  command=(create --name "$name" --skills "$skills")
   if [[ -n "$cpus" ]]; then command+=(--cpus "$cpus"); fi
   if [[ -n "$memory" ]]; then command+=(--memory "$memory"); fi
   command+=(--env "BOXEN_AGENT=$agent" --env "BOXEN_PLUGINS=$selected")
-  if [[ "$cloud" == 1 ]]; then command+=(--env BOXEN_CLOUD=1); fi
   if has_plugin supabase-serve; then command+=(--env BOXEN_SERVE_PRESET=supabase); fi
   # The literal two-asterisk argument; the account's or host's denies still win.
   if [[ "$open_network" == 1 ]]; then command+=(--allow-network '**'); fi
@@ -846,12 +525,7 @@ create() {
     copy_kib="$(copy_size "$directory" "$skips")"
   fi
   if [[ "$dry" == 1 ]]; then
-    if [[ "$cloud" == 1 ]]; then
-      print_command "$SBX_BIN" --cloud "${command[@]}"
-      printf 'Cloud: stops after %s and keeps its files (BOXEN_CLOUD_TTL)\n' "$ttl_words"
-    else
-      print_command "$SBX_BIN" "${command[@]}"
-    fi
+    print_command "$SBX_BIN" "${command[@]}"
     printf 'Workspace: %s%s\n' "$mode" "${directory:+ ($directory)}"
     if [[ "$mode" == copy ]]; then copy_summary "$copy_kib" "$skips"; fi
     printf 'Plugins: %s\n' "${selected:-none}"
@@ -861,21 +535,12 @@ create() {
   fi
   need_sbx
   need_docker
-  CLOUD="$cloud"
-  if [[ "$cloud" == 1 ]]; then need_jq 'create --cloud'; fi
-  # One name across both backends: the registry, then the selected backend,
-  # live. The other backend is never contacted.
-  if registered "$name"; then
-    if is_cloud "$name"; then die "$name already names a cloud sandbox (see boxen ls)"; fi
-    die "$name already names a local sandbox (see boxen ls)"
-  fi
+  # The registry first, then sbx itself, before anything is made.
+  if registered "$name"; then die "$name already names a boxen sandbox (see boxen ls)"; fi
   if sandbox_exists "$name"; then
-    if [[ "$cloud" == 1 ]]; then
-      die "$name already exists in the cloud (not made by boxen); pick another name or remove it with sbx --cloud rm $name"
-    fi
-    die "$name already exists locally (not made by boxen); pick another name or remove it with sbx rm $name"
+    die "$name already exists (not made by boxen); pick another name or remove it with sbx rm $name"
   fi
-  if [[ "$cloud" == 0 ]]; then memory_ok "$memory" || exit 1; fi
+  memory_ok "$memory" || exit 1
   warn_host_wide_agent_secret "$agent"
   if [[ "$gh_stdin" == 1 ]]; then IFS= read -r gh_token || true; fi
   # Ask for the selected plugins' keys before the long provisioning run. Each
@@ -903,37 +568,11 @@ create() {
   fi
   # Echo the choice: a mis-keyed toggle in the selector is otherwise silent.
   log "Agent: $agent; plugins: ${selected:-none}"
-  if [[ "$cloud" == 1 ]]; then
-    # Stored before the run so the first start has it; create never
-    # replaces a credential it did not make.
-    if [[ -n "$gh_token" ]]; then
-      if secret_exists "$name" github; then
-        die "A GitHub secret already exists for $name; create without a token and run boxen auth github $name afterwards, or remove it first with sbx --cloud secret rm --sandbox $name github"
-      fi
-      printf '%s' "$gh_token" | sbx secret set --sandbox "$name" github || die 'Storing the GitHub token failed; nothing was created.'
-      gh_token_stored=1
-    fi
-    log "Creating $name in Docker Cloud; the kits upload from this checkout first"
-    if ! sbx "${command[@]}" >/dev/null; then
-      # The name was free before this attempt, so a sandbox there now (or one
-      # that cannot be ruled out) is this attempt's: keep it and its secret.
-      listed "$name" || listing=$?
-      if [[ "$listing" != 1 ]]; then register "$name" cloud; created_but "$name" 'starting it'; fi
-      if [[ "$gh_token_stored" == 1 ]]; then
-        sbx secret rm --sandbox "$name" github </dev/null ||
-          warn "Removing the GitHub secret failed; remove it with sbx --cloud secret rm --sandbox $name github"
-      fi
-      die "Creating $name in the cloud failed; nothing was kept."
-    fi
-    run_returned="$(date +%s)"
-    register "$name" cloud
-  else
-    # sbx create refuses duplicate names. Never remove or recreate an existing sandbox.
-    sbx "${command[@]}"
-    register "$name"
-    # Quiet: it prints only the sandbox ID.
-    sbx run -d --name "$name" >/dev/null || created_but "$name" 'starting it'
-  fi
+  # sbx create refuses duplicate names. Never remove or recreate an existing sandbox.
+  sbx "${command[@]}"
+  register "$name"
+  # Quiet: it prints only the sandbox ID.
+  sbx run -d --name "$name" >/dev/null || created_but "$name" 'starting it'
   if [[ "$mode" == copy ]]; then
     log "Copying $directory into /workspace, including .git and uncommitted files"
     copy_summary "$copy_kib" "$skips"
@@ -952,10 +591,8 @@ create() {
     fi
   done
   if [[ -n "$gh_token" ]]; then
-    if [[ "$cloud" == 0 ]]; then
-      printf '%s' "$gh_token" | sbx secret set --sandbox "$name" github ||
-        warn "Storing the GitHub token failed; retry with: boxen auth github $name"
-    fi
+    printf '%s' "$gh_token" | sbx secret set --sandbox "$name" github ||
+      warn "Storing the GitHub token failed; retry with: boxen auth github $name"
   elif has_plugin gh-auth; then
     printf 'Add a GitHub token later: boxen auth github %s\n' "$name"
   fi
@@ -983,17 +620,10 @@ create() {
     printf 'Once joined, the sandbox reaches whatever your tailnet ACLs allow, outside sbx network policy.\n'
   fi
   offer_agent_login "$name"
-  if [[ "$cloud" == 1 ]]; then cloud_ttl_report "$name" "$ttl_seconds" "$run_returned" "$ttl"; fi
   # Last, after sbx's own "To connect" hint, so this is what stays on screen.
   printf '\nTo open a shell in the sandbox, run:\n  » boxen %s\n' "$name"
   if [[ "$agent" != shell ]]; then printf 'Start the agent with: boxen run %s\n' "$name"; fi
   printf 'Check the plugins with: boxen check %s\n' "$name"
-  if [[ "$cloud" == 1 ]]; then
-    for line in ${ttl_lines[@]+"${ttl_lines[@]}"}; do printf '%s\n' "$line"; done
-    printf 'It stops after %s and keeps its files; resume it with: boxen %s\n' "$ttl_words" "$name"
-    printf 'Work lives only in the sandbox until you push it; commit and push often.\n'
-    printf 'Preview it on this laptop with: boxen net %s PORT\n' "$name"
-  fi
 }
 
 cmd_shell() {
@@ -1008,11 +638,6 @@ cmd_shell() {
   [[ $# -ge 1 ]] || die 'Usage: shell [--with-sudo] NAME [COMMAND...]'
   name="$1"; shift
   need_sandbox "$name"
-  if [[ "$with_sudo" == 1 && "$CLOUD" == 1 ]]; then
-    log "cloud sandboxes keep Docker's sudo; sudo is already available in the shell" >&2
-    with_sudo=0
-  fi
-  resume_if_stopped "$name"
   if [[ $# == 0 ]]; then offer_agent_login "$name"; fi
   if [[ -t 0 && -t 1 ]]; then tty=(-it); fi
   # One argument is a command line; several are a command and its
@@ -1044,38 +669,33 @@ cmd_run() {
 cmd_exec() {
   [[ $# -ge 2 ]] || die 'Usage: exec NAME COMMAND [ARGS...]'
   need_sandbox "$1"
-  resume_if_stopped "$1"
   if [[ -t 0 ]]; then sbx exec "$@"; else sbx exec -i "$@"; fi
 }
 
 cmd_stop() {
   [[ $# == 1 ]] || die 'Usage: stop NAME'
   need_sandbox "$1"
-  if [[ "$CLOUD" == 1 ]]; then tunnel_close "$1"; fi
   sbx stop "$1"
   log "Stopped $1"
 }
 
 cmd_stop_all() {
-  local states name status backend stopped=0
+  local states name status stopped=0
   need_sbx
   states="$(managed_states kill-all)"
-  while read -r name status backend; do
+  while read -r name status; do
     [[ -n "$name" ]] || continue
-    if [[ "$backend" == cloud ]]; then CLOUD=1; tunnel_close "$name"; else CLOUD=0; fi
     [[ "$status" == running ]] || continue
     sbx stop "$name" </dev/null
     log "Stopped $name"
     stopped=1
   done <<< "$states"
-  CLOUD=0
   [[ "$stopped" == 1 ]] || echo 'No running boxen sandboxes'
 }
 
 cmd_delete() {
   [[ $# == 1 ]] || die 'Usage: delete NAME'
   need_sandbox "$1"
-  if [[ "$CLOUD" == 1 ]]; then tunnel_close "$1"; fi
   # sbx asks for confirmation and also removes secrets scoped to the sandbox.
   sbx rm "$1" || true
   if sandbox_exists "$1"; then die "$1 was not deleted"; fi
@@ -1099,8 +719,6 @@ cmd_net() {
   local publish=() unpublish=()
   shift
   need_sandbox "$name"
-  # A cloud sandbox has no host ports of its own: an SSH tunnel instead.
-  if [[ "$CLOUD" == 1 ]]; then cloud_net "$name" "$@"; return; fi
   while [[ $# -gt 0 ]]; do
     case "$1" in
       -b|--bind) need_value "$@"; bind="$2"; shift 2 ;;
@@ -1145,7 +763,6 @@ cmd_env() {
   if [[ -n "$service" ]]; then
     printf '%s' "$value" | sbx secret set --sandbox "$name" "$service"
     log "Stored $var as $name's sbx $service secret; the proxy injects it and the sandbox sees a placeholder."
-    if [[ "$CLOUD" == 1 ]]; then log "Cloud secrets apply when the sandbox next starts: boxen stop $name; boxen $name"; fi
     return
   fi
   # The value travels on stdin, never as an argument.
@@ -1166,18 +783,16 @@ write_status() {
 }
 
 cmd_update_all() {
-  local states name status backend failed="" logfile
+  local states name status failed="" logfile
   need_sbx
   states="$(managed_states update-all)"
   if [[ -z "$states" ]]; then echo 'No boxen sandboxes found'; return; fi
   mkdir -p "$LOG_DIR"
   logfile="$LOG_DIR/update-$(date +%Y%m%d-%H%M%S).log"
-  while read -r name status backend; do
+  while read -r name status; do
     [[ -n "$name" ]] || continue
-    if [[ "$backend" == cloud ]]; then CLOUD=1; else CLOUD=0; fi
     if [[ "$status" != running ]]; then
-      # A cloud sandbox runs on Docker's hosts, not in this one's memory.
-      if [[ "$CLOUD" == 0 ]] && ! memory_ok "${BOXEN_MEMORY:-4g}"; then failed="$failed $name"; continue; fi
+      if ! memory_ok "${BOXEN_MEMORY:-4g}"; then failed="$failed $name"; continue; fi
       log "Starting $name..."
       if ! sbx run -d --name "$name" </dev/null >/dev/null; then failed="$failed $name"; continue; fi
     fi
@@ -1192,7 +807,6 @@ cmd_update_all() {
       sbx stop "$name" </dev/null >/dev/null || true
     fi
   done <<< "$states"
-  CLOUD=0
   if [[ -n "$failed" ]]; then
     printf 'Failed:%s\nSee %s\n' "$failed" "$logfile" >&2
     write_status failed "${failed# }"
@@ -1227,23 +841,11 @@ cmd_cron() {
   esac
 }
 
-# The local list, then the cloud's when boxen made cloud sandboxes. With
-# both, a backend that cannot be listed is skipped with a warning, so cloud
-# boxes still show with no local runtime.
-list_sandboxes() {
-  if ! has_cloud_rows; then sbx ls "$@"; return; fi
-  sbx ls "$@" || warn 'Could not list the local sandboxes.'
-  printf '\nCloud\n'
-  CLOUD=1
-  sbx ls "$@" || warn 'Could not list the cloud sandboxes.'
-  CLOUD=0
-}
-
 cmd_status() {
   need_sbx
   case "${1:-}" in
-    --once) list_sandboxes ;;
-    '') if [[ -t 0 && -t 1 ]]; then sbx tui; else list_sandboxes; fi ;;
+    --once) sbx ls ;;
+    '') if [[ -t 0 && -t 1 ]]; then sbx tui; else sbx ls; fi ;;
     *) die 'Usage: status [--once]' ;;
   esac
 }
@@ -1257,7 +859,6 @@ auth() {
     github)
       [[ $# == 0 || ( $# == 1 && "$1" == --from-gh ) ]] || die 'Use: auth github NAME [--from-gh]'
       if [[ $# == 1 ]]; then
-        refuse_on_cloud 'auth github --from-gh'
         gh_path="$(type -P gh)" || die 'Install and sign in to gh on the host first.'
         printf 'Using the host gh token; it carries every scope gh was granted.\n' >&2
         # sbx runs command secrets from a temporary directory, and its daemon's
@@ -1276,7 +877,6 @@ auth() {
       ;;
     1password)
       [[ $# == 2 && "$2" == op://* ]] || die 'Use: auth 1password NAME SERVICE op://VAULT/ITEM/FIELD'
-      refuse_on_cloud 'auth 1password'
       command -v op >/dev/null || die 'Install and sign in to op on the host first.'
       sbx secret set --sandbox "$name" "$1" --ref "$2"
       ;;
@@ -1321,20 +921,16 @@ version_ge() {
 }
 
 cmd_doctor() {
-  local version service cloud=0 failed=0
-  case "${1:-}" in
-    --cloud) cloud=1 ;;
-    '') ;;
-    *) die 'Usage: doctor [--cloud]' ;;
-  esac
+  local version service failed=0
+  [[ $# == 0 ]] || die 'Usage: doctor'
   need_sbx
   version="$(sbx version 2>/dev/null | sed -n 's/.*version:\{0,1\} v\{0,1\}\([0-9][0-9.]*\).*/\1/p' | head -1)"
   [[ -n "$version" ]] || die 'Could not read the sbx version'
   version_ge "$version" "$MIN_SBX_VERSION" ||
     die "sbx $version is too old; boxen needs $MIN_SBX_VERSION or newer."
   printf 'sbx %s\n' "$version"
-  # KVM runs local microVMs; a cloud sandbox runs on Docker's hosts.
-  if [[ "$cloud" == 0 && "${BOXEN_SKIP_KVM_CHECK:-0}" != 1 && "$(uname -s)" == Linux ]]; then
+  # Every sandbox is a microVM on KVM.
+  if [[ "${BOXEN_SKIP_KVM_CHECK:-0}" != 1 && "$(uname -s)" == Linux ]]; then
     [[ -r /dev/kvm && -w /dev/kvm ]] || die '/dev/kvm is not accessible; local sandboxes need KVM and kvm group membership.'
   fi
   if docker_builder_ok; then
@@ -1348,11 +944,7 @@ cmd_doctor() {
       printf 'Note: a host-wide %s secret replaces each sandbox'"'"'s own sign-in (sbx secret rm %s).\n' "$service" "$service"
     fi
   done
-  if [[ "$cloud" == 1 ]]; then
-    if sbx --cloud ls </dev/null; then printf 'Cloud: ok\n'; else printf 'Cloud: unreachable\n'; failed=1; fi
-  else
-    sbx ls
-  fi
+  sbx ls
   [[ "$failed" == 0 ]] || exit 1
 }
 
@@ -1384,11 +976,10 @@ main() {
     update-all|-ua) cmd_update_all ;;
     cron) cmd_cron "$@" ;;
     status) cmd_status "$@" ;;
-    ls) need_sbx; list_sandboxes "$@" ;;
+    ls) need_sbx; sbx ls "$@" ;;
     check)
       [[ $# == 1 ]] || die 'Usage: check NAME'
       need_sandbox "$1"
-      resume_if_stopped "$1"
       GUEST_TTY=()
       guest_script "$1" check.sh ;;
     auth) auth "$@" ;;

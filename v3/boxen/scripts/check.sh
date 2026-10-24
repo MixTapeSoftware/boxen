@@ -14,11 +14,7 @@ check zsh zsh --version
 check 'GitHub CLI' gh --version
 check 'Docker CLI' docker --version
 check Compose docker compose version
-if [[ "${BOXEN_CLOUD:-0}" == 1 ]]; then
-  check "Docker's sudo (cloud sandbox)" sudo -n true
-else
-  check 'No standing sudo' bash -c '! sudo -n true'
-fi
+check 'No standing sudo' bash -c '! sudo -n true'
 # Every tool is baked into the image, so every box has all of them.
 for binary in fzf bat just glow mermaid-ascii overmind rtk nvim op tailscale; do
   check "$binary" command -v "$binary"

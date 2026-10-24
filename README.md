@@ -1,20 +1,19 @@
 # Boxen
 
-Development sandboxes for coding agents on **Docker Sandboxes**, locally or in
-Docker Cloud, with a shell by default and optional Claude, Codex or Grok. Docker
-owns the VM, network policy, credential proxy and private Docker Engine. This
+Development sandboxes for coding agents on **Docker Sandboxes**, with a shell
+by default and optional Claude, Codex or Grok. Docker owns the VM, network
+policy, credential proxy and private Docker Engine. This
 project supplies the `boxen` launcher, an image with every development tool baked
 in, a few option kits, shell configuration and Tailscale integration.
 
 Requires SBX **0.47.0 or newer**, Docker sign-in, Docker itself, running (sbx
-builds the local [v3 kits](https://docs.docker.com/ai/sandboxes/customize/) with
-it, for local and cloud sandboxes alike), and a host supported by
-[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/install/). Local sandboxes
-on Linux need working KVM access; running inside a VM requires nested
+builds the [v3 kits](https://docs.docker.com/ai/sandboxes/customize/) with
+it), and a host supported by
+[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/install/). Sandboxes on
+Linux need working KVM access; running inside a VM requires nested
 virtualization. The host launcher uses Bash 3.2 and standard Unix tools;
-`kill-all`, `update-all` and `create --cloud` also need jq, and cloud previews
-need ssh. Python is only needed for development tests. Kits live in `v3/` and
-are not published to a registry.
+`kill-all` and `update-all` also need jq. Python is only needed for development
+tests. Kits live in `v3/` and are not published to a registry.
 
 ## Why sbx
 
@@ -33,7 +32,7 @@ starts from the same setup instead of being configured by hand.
 ~~~bash
 sbx login
 ./install                 # Links boxen into ~/.local/bin; offers Chadmux
-boxen doctor              # boxen doctor --cloud skips the KVM check
+boxen doctor
 
 # Choose an agent and kits, then copy the current directory into a new sandbox.
 cd /path/to/project
@@ -47,9 +46,6 @@ boxen create scratch --no-copy
 # An agent with the same tools; boxen run starts it.
 boxen create codex-project --agent codex
 boxen run codex-project
-
-# The same in Docker Cloud.
-boxen create team-project --cloud --agent claude
 ~~~
 
 The first `create` builds the tools image, which takes 15 to 30 minutes (Chrome
@@ -59,10 +55,9 @@ moments, and changing a runtime script rebuilds only the last step.
 Creation stays detached so preview servers continue after closing your terminals.
 Stop with `stop`; reconnect with `shell` or `run`. Files persist across a stop
 and resume. Commands that take a name check that the sandbox exists first, so a
-mistyped name never creates a sandbox; only `create` does. A name is unique
-across local and cloud sandboxes.
+mistyped name never creates a sandbox; only `create` does.
 
-Each local sandbox gets 4 CPUs (or fewer on a smaller host) and 4 GiB unless you
+Each sandbox gets 4 CPUs (or fewer on a smaller host) and 4 GiB unless you
 pass `--cpus` and `--memory`, or set `BOXEN_CPUS` and `BOXEN_MEMORY`. Every
 sandbox is a microVM that holds its memory. On Linux, `create` refuses to start
 one when available memory is below its size plus 1 GiB; a concurrent test
@@ -84,16 +79,15 @@ credential. Configure credential sources separately.
 | `NAME`, `shell [--with-sudo] NAME [COMMAND...]` | `-s` | Open zsh, or run a command |
 | `run NAME [-- ARGS...]` | | Attach to the sandbox's agent |
 | `exec NAME COMMAND [ARGS...]` | | Run a command |
-| `net NAME [-b ADDR\|-H HOST] [-l] [-r PORT] [PORT\|HOST:SANDBOX\|supabase ...]` | `-n` | Locally, publish ports on the host through `sbx ports`; on a cloud sandbox, an SSH tunnel to `127.0.0.1` on this laptop. `-r all` is not supported |
+| `net NAME [-b ADDR\|-H HOST] [-l] [-r PORT] [PORT\|HOST:SANDBOX ...]` | `-n` | Publish ports on the host through `sbx ports`. `-r all` is not supported |
 | `env NAME VAR` | `-e` | Set a variable; prompts without echoing |
 | `stop NAME`, `kill-all` | `kill`, `-k`, `-ka` | Stop one sandbox, or every running boxen sandbox |
 | `delete NAME` | `-d` | Remove it, after sbx asks to confirm |
 | `update NAME`, `update-all`, `cron install [HOUR]\|remove\|status` | `-u`, `-ua` | `apt-get upgrade` as root, on demand or nightly |
-| `status [--once]`, `ls` | | `sbx tui`, or the sandbox list once; cloud sandboxes follow under `Cloud` |
+| `status [--once]`, `ls` | | `sbx tui`, or the sandbox list once |
 
 `auth`, `tailscale`, `check`, `validate` and `doctor` are described below, and
-`boxen --help` lists every option. Every command routes a cloud sandbox to
-Docker Cloud by itself, and `kill-all` and `update-all` cover both.
+`boxen --help` lists every option.
 
 `boxen status` opens sbx's dashboard, which `sbx tui` (or plain `sbx`) also
 opens. It shows each sandbox's status, CPU and memory, with keys to start or
@@ -185,11 +179,6 @@ sandbox, boxen removes it when the sandbox is created. For root, open a session
 with `./boxen shell --with-sudo NAME`: it adds a `_sudo` group to that session
 only. Agents are told to ask you instead of using sudo.
 
-Cloud sandboxes keep Docker's sudo: `sbx --cloud exec` cannot run as root, so
-sudo is the only way to root there. `update`, `update-all` and the Tailscale
-commands run through `sudo -n` on a cloud sandbox, and `shell --with-sudo` just
-opens the shell.
-
 ## Kits
 
 `v3/boxen` is the workload: one image, built `FROM` Docker's
@@ -262,58 +251,20 @@ sbx create --name try-v3 --cpus 4 --memory 4g --env BOXEN_AGENT=claude \
 ~~~
 
 Add `--kit ./v3/<mixin>` for each option you want. With `v3/tailscale`,
-`--env BOXEN_SERVE_PRESET=supabase` picks the Supabase routes. A cloud sandbox
-made by hand also needs `--env BOXEN_CLOUD=1`: without it the install hook
-removes the agent's sudo, and a cloud `exec` cannot run as root, so the sandbox
-has no way back to root. Host kit paths are calculated from the launcher's
-location, so the checkout can live anywhere.
+`--env BOXEN_SERVE_PRESET=supabase` picks the Supabase routes. Host kit paths
+are calculated from the launcher's location, so the checkout can live anywhere.
 
-## Cloud sandboxes
+## Docker Cloud
 
-`boxen create NAME --cloud` makes the same sandbox in Docker Cloud: the same
-image and kits, uploaded from this checkout, billed while it runs.
-
-- **It stops; it is never deleted at expiry.** Each cloud sandbox is created
-  with `--on-timeout stop` and a period from `BOXEN_CLOUD_TTL`: whole hours from
-  1 to 24 (`8` or `8h`, the default), or minutes from 5 to 59 (`5m`). A stopped
-  sandbox keeps its files and bills no compute; `boxen NAME` resumes it, with
-  its id and a fresh period. After its setup, `create` reads the period back,
-  extends one that came up short, and prints when it stops.
-- **Docker caps a cloud sandbox at 24 hours from creation**, a clock that runs
-  while it is stopped too. Whether a stopped sandbox can still be resumed after
-  that is what `tests/host/day2-probe.sh` checks. Until it passes, treat a cloud
-  sandbox as one copy of your work on someone else's service: work lives only
-  in the sandbox until you push it, so commit and push often.
-- **Workspaces are copied or empty.** `--mode mount`, `--mode clone` and
-  `--skills` need this host and are refused. `--cpus` and `--memory` go to the
-  cloud only when given; otherwise Docker's default applies (`BOXEN_CPUS` and
-  `BOXEN_MEMORY` are local settings).
-- **Credentials are set before the sandbox starts.** A GitHub token from the
-  prompt or `--gh-token-stdin` is stored as a sandbox-scoped secret before the
-  run, and only if none exists: `create` never replaces a credential it did not
-  make. If creation fails before the sandbox exists, it removes only the secret
-  it stored; if it fails after, it keeps the sandbox and its secret and says
-  `boxen delete NAME`. Host-resolved secrets (`auth github --from-gh`,
-  `auth 1password`) are refused. Whether a service secret set later with
-  `boxen env` applies at once or at the next start is recorded by the cloud
-  gate; until it reports, `boxen env` says the next start.
-- **Root goes through Docker's sudo**, which cloud sandboxes keep: `update`,
-  Tailscale and the Supabase routes work there (see [Sudo](#sudo)).
-
-Previews never use Docker's public cloud ports. `boxen net NAME PORT` (or
-`HOST_PORT:SANDBOX_PORT`, or `supabase` for the seven Supabase ports) opens one
-background SSH connection to the sandbox and forwards each port to
-`127.0.0.1` on your laptop, so the app and Supabase have the same `localhost`
-addresses as in local development, and only you reach them. The tunnel lasts
-while the laptop is awake: `boxen net NAME -l` lists the forwards and marks a
-tunnel that closed, `boxen net NAME` reopens it with the same forwards, `-r PORT`
-removes one, and `stop`, `delete` and `kill-all` close it. `-b` and `-H` are
-refused: share from your laptop with `tailscale serve`, or give the sandbox
-`--tailscale` for a stable private address on your tailnet.
-
-Docker Engine and Compose are in every sandbox. Whether Supabase's local stack
-(Compose with healthchecks) runs inside a cloud sandbox is checked by
-`tests/host/cloud-gate.sh`; until it passes, run it in a local sandbox.
+Boxen makes local sandboxes only. `create --cloud`, the SSH-tunnel previews,
+the TTL handling and the cloud host gates were removed on 2026-10-24; the last
+commit with them is `b795c5c`. They are parked, not abandoned. A cloud create
+uploads the locally assembled kit set, about 1.2 GiB, as a template under a
+short-lived credential that an ordinary uplink outruns, and the fallback upload
+times out. Cloud templates belong to one account, and the cloud cannot pull
+private registry images, so the only way to share an image with a team is to
+publish it. Cloud comes back when Docker refreshes the upload credential, lets
+the cloud pull private kits, or shares templates across an organization.
 
 ## Host setup and Chadmux
 
@@ -376,9 +327,7 @@ boxen auth 1password my-project github 'op://Work/GitHub/token'  # host op:// re
 ~~~
 
 Sandbox-scoped sbx secrets are removed with the sandbox. `--gh-token-stdin`
-reads the token from stdin's first line instead of a prompt, for scripts. On a
-cloud sandbox, `--from-gh` and `auth 1password` are refused: cloud secrets
-cannot run host commands, so pipe the token in instead.
+reads the token from stdin's first line instead of a prompt, for scripts.
 
 Sandboxes created before v3 keep their scripts in an older place;
 `boxen NAME`, `shell`, `check` and the sign-in offer still work on them, and
@@ -522,10 +471,8 @@ in check:
    sandbox could join a tailnet of its own and move data through it. Boxen
    cannot prevent that; the sbx network policy is the only control.
 
-On a local sandbox the node has no operator, so the agent cannot change its
-settings; `join`, `serve` and `status` run as root. A cloud sandbox keeps
-Docker's sudo (see [Sudo](#sudo)), so there the tag and your policy are the
-limits.
+The node has no operator, so the agent cannot change its settings; `join`,
+`serve` and `status` run as root.
 
 ~~~bash
 ./boxen tailscale serve my-project 5173
@@ -554,11 +501,6 @@ state lives in `/var/lib/tailscale` on the sandbox's own disk: it survives a
 stop and resume and goes away with the sandbox. Do not export an enrolled
 environment as an image; it would carry the identity, and this wrapper
 deliberately has no template-export command.
-
-Tailscale works on cloud sandboxes too: `join`, `serve` and `status` run there
-through Docker's sudo, and so could the agent. For a preview on your own
-laptop alone, `boxen net` is simpler and keeps the sandbox off your tailnet;
-see [Cloud sandboxes](#cloud-sandboxes).
 
 Userspace networking avoids a tunnel device and uses a local SOCKS5 listener for
 outgoing tailnet connections. For an individual command:
@@ -614,10 +556,6 @@ bash tests/host/compose-gate.sh      # the workload alone and with each agent mi
 bash tests/host/tools-gate.sh        # every tool baked in, build and rebuild times
 bash tests/host/mixins-gate.sh       # every Boxen mixin on at once, for each agent, and a restart
 bash tests/host/launcher-gate.sh     # boxen itself: create, check, validate, --open-network
-BOXEN_CLOUD_POLICY_NOTE='your account network default' \
-  bash tests/host/cloud-compose-gate.sh   # Docker Cloud: stop, SSH forward, a real expiry
-bash tests/host/cloud-gate.sh        # boxen create --cloud end to end (see its header for inputs)
-bash tests/host/expiry-gate.sh       # a real expiry of the launcher's cloud sandboxes
 bash tests/host/acceptance-gate.sh   # all of them, once, on a clean revision
 ~~~
 

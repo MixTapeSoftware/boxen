@@ -1,13 +1,11 @@
 #!/usr/bin/env bash
 # Runs as root. Auth keys enter on stdin and are never command arguments.
-# No --operator: on a local sandbox the agent user cannot reconfigure the
-# node (exit nodes, Funnel, serve); changes go through boxen, which runs
-# this as root. A cloud sandbox keeps sudo, so there the tag and the
-# tailnet policy are the real limits.
+# No --operator: the agent user cannot reconfigure the node (exit nodes,
+# Funnel, serve); changes go through boxen, which runs this as root.
 set +x
 set -euo pipefail
-# sudo -n resets the environment on a cloud sandbox; the tailscale mixin
-# records the preset chosen at create in a file.
+# This helper may not see create's environment; the tailscale mixin records
+# the preset chosen at create in a file.
 preset="${BOXEN_SERVE_PRESET:-$(cat "${BOXEN_SERVE_PRESET_FILE:-/etc/boxen/serve-preset}" 2>/dev/null || true)}"
 # Every node is tagged: a tagged node has no user's identity, so it gets
 # none of the user's access and no Funnel grant aimed at members. The
