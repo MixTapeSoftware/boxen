@@ -498,6 +498,17 @@ in check:
    A policy written with `grants` takes the same rule as
    `{"src": ["autogroup:member"], "dst": ["tag:boxen"], "ip": ["tcp:443", …]}`.
 
+   There is more than one way to write this. A policy that already names who
+   may reach everything, such as
+   `{"action": "accept", "src": ["group:admin"], "dst": ["*:*"]}`, covers
+   sandboxes too, and the rule above adds nothing for those users; the
+   seven-port narrowing then applies only to members outside that group.
+   Whatever the shape, three things must hold: `tag:boxen` is in `tagOwners`,
+   no rule has `tag:boxen` as `src`, and no `funnel` nodeAttrs entry names it.
+   A `tests` entry with `"src": "tag:boxen"` and a `deny` list pins the second
+   one; Tailscale refuses to save a policy that breaks it. Read
+   [Tailscale's ACL docs](https://tailscale.com/kb/1018/acls) before editing.
+
    If someone could add a node from Tailscale's side, your access rules come
    from the same servers; [Tailnet Lock](https://tailscale.com/kb/1226/tailnet-lock)
    covers that, and a key signed with `tailscale lock sign` works with

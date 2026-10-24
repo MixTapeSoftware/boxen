@@ -95,6 +95,11 @@ class Install(unittest.TestCase):
                      "funnel"):
             self.assertIn(line, result.stdout)
         self.assertNotIn("grants", result.stdout)
+        # One way among several: an admin rule that already reaches everything
+        # covers sandboxes too, and the docs are where to learn the rest.
+        self.assertIn("more than one way", result.stdout)
+        self.assertIn('"src": ["group:admin"], "dst": ["*:*"]', result.stdout)
+        self.assertIn("https://tailscale.com/kb/1018/acls", result.stdout)
 
     def test_keeps_a_file_in_the_way(self):
         target = self.home / ".local/bin/boxen"
