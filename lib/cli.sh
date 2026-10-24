@@ -145,9 +145,12 @@ need_sandbox() {
   sandbox_exists "$1" ||
     die "No sandbox named $1 (see boxen ls). Nothing was created; use boxen create $1."
 }
-# The registry has one line per sandbox: its NAME. Older registries may carry
-# a second, tab-separated field; only the name is read.
-registered() { [[ -f "$REGISTRY" ]] && cut -f1 "$REGISTRY" | grep -Fxq -- "$1"; }
+# The registry has one line per sandbox: its NAME. A registry from before
+# 2026-10-24 may also hold NAME<TAB>cloud rows for Docker Cloud sandboxes;
+# those name sandboxes boxen no longer manages, so they are never read as
+# local ones (a local sandbox with the same name is not boxen's).
+registry_names() { [[ -f "$REGISTRY" ]] && awk -F'\t' '$2 != "cloud" { print $1 }' "$REGISTRY"; }
+registered() { registry_names | grep -Fxq -- "$1"; }
 register() {
   mkdir -p "$STATE_DIR"
   registered "$1" || printf '%s\n' "$1" >> "$REGISTRY"
@@ -162,7 +165,8 @@ managed_states() {
   local names json
   need_jq "$1"
   [[ -s "$REGISTRY" ]] || return 0
-  names="$(cut -f1 "$REGISTRY")"
+  names="$(registry_names)"
+  [[ -n "$names" ]] || return 0
   json="$(sbx ls --json </dev/null)" || die 'sbx ls failed; check boxen doctor.'
   printf '%s' "$json" | jq -r --arg registry "$names" '
     ($registry | split("\n") | map(select(length > 0))) as $names

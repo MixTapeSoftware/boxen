@@ -658,6 +658,24 @@ class CLI(unittest.TestCase):
                 self.cli("kill-all")
                 self.assertEqual([c["args"] for c in self.calls() if "stop" in c["args"]], [["stop", "box1"]])
 
+    def test_legacy_cloud_rows_never_claim_a_local_sandbox(self):
+        # A registry from before cloud support was removed can hold "NAME<TAB>cloud".
+        # A local sandbox with that name is not boxen's: bulk commands leave it alone.
+        registry = self.directory / "state/sandboxes"
+        registry.parent.mkdir(parents=True)
+        registry.write_text("shared\tcloud\n")
+        self.sandboxes("shared")
+        self.env["FAKE_SBX_RUNNING"] = "shared"
+        self.assertIn("No running boxen sandboxes", self.cli("kill-all").stdout)
+        self.assertIn("No boxen sandboxes found", self.cli("update-all").stdout)
+        self.assertFalse(any(c["args"][0] in ("stop", "exec", "run") for c in self.calls(everything=True)), self.calls())
+        # The row does not block a local sandbox of that name either, once sbx has none.
+        self.sandboxes()
+        self.cli("create", "shared", "--no-copy", "--plugins", "none")
+        self.assertEqual(registry.read_text(), "shared\tcloud\nshared\n")
+        self.cli("delete", "shared", stdin="y\n")
+        self.assertEqual(registry.read_text(), "")
+
     def test_net_publishes_through_sbx_ports(self):
         self.cli("create", "box", "--no-copy", "--plugins", "none"); self.log.unlink()
         self.cli("net", "box", "3000")
