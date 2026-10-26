@@ -105,6 +105,9 @@ if [[ ! -e "$credentials" ]]; then
   mkdir -p "$(dirname "$credentials")"
   printf '# Written by boxen'"'"'s install. Approves the gh-auth mixin'"'"'s use of the github secret.\n%s\n' "$binding" > "$credentials"
   log "Approved the gh-auth mixin's GitHub credential in $credentials"
+  # sandboxd reads the file when it starts and not again.
+  echo 'If sbx is already running, run: sbx daemon restart (stops running sandboxes;'
+  echo 'resume one with sbx run -d --name NAME). Until then the token is withheld.'
 elif grep -Eq '^[[:space:]]+github:[[:space:]]*$' "$credentials"; then
   log "GitHub credential binding present in $credentials"
 else

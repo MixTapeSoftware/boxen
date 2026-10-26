@@ -110,8 +110,12 @@ class Install(unittest.TestCase):
         self.assertIn("Approved the gh-auth", result.stdout)
         self.assertEqual(credentials.read_text().splitlines()[-4:], [
             "bindings:", "  github:", "    apiKey:", "      domains: [api.github.com, github.com, gist.github.com]"])
+        # sandboxd reads the file when it starts and not again.
+        self.assertIn("sbx daemon restart", result.stdout)
+        self.assertIn("stops running sandboxes", result.stdout)
         result = self.install("--no-chadmux")
         self.assertIn("binding present", result.stdout)
+        self.assertNotIn("sbx daemon restart", result.stdout)
 
     def test_leaves_someone_elses_credentials_file_alone(self):
         credentials = self.home / ".config/sbx/credentials.yaml"

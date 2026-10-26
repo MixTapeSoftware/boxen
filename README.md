@@ -349,6 +349,12 @@ If that file already exists, `install` prints the block for you to merge
 instead of editing it. `create` refuses `gh-auth` until the binding is there,
 and `doctor` reports it. The binding is an approval record, not a secret.
 
+sandboxd reads the file when it starts and not again, so after writing it on
+a host where sbx is already running, run `sbx daemon restart`. That stops
+running sandboxes; `sbx run -d --name NAME` resumes one with its files intact.
+Restarting a sandbox alone does not help: the daemon, not the sandbox, holds
+the approved set.
+
 Sandboxes created before v3 keep their scripts in an older place;
 `boxen NAME`, `shell`, `check` and the sign-in offer still work on them, and
 nothing recreates them. They get none of the v3 kits: recreate one to move it
