@@ -372,20 +372,18 @@ host_wide_agent_secret() {
   host_wide_secret "$service" || return 1
   printf '%s\n' "$service"
 }
-# What was seen on 2026-10-26 with sbx and Docker's Claude mixin, to stderr:
-# with a host-wide anthropic secret stored and its binding declined, the
-# sandbox's own sign-in left Claude Code holding the proxy's placeholder token
-# and every later request failed with 401. The proxy masking the sign-in's
-# token response is the likely cause; it is not confirmed, so the message
-# reports the failure and the two ways around it, not a mechanism.
+# Why a host-wide secret stops the sandbox's own sign-in, to stderr. Seen on
+# 2026-10-26 with sbx and Docker's Claude mixin: when the binding is declined
+# the proxy still masks the token the sign-in receives, so Claude Code is
+# left holding a placeholder nobody swaps back, and fails with 401s.
 host_wide_secret_advice() {
-  printf '  The sandbox ends up with a placeholder token instead of the one the sign-in received.\n' >&2
+  printf '  The sandbox proxy masks the sign-in token even when the binding is declined, leaving a placeholder the agent cannot use.\n' >&2
   printf '  Accept the binding so every sandbox shares that credential, or remove it: sbx secret rm %s\n' "$1" >&2
 }
 warn_host_wide_agent_secret() {
   local service
   service="$(host_wide_agent_secret "$1")" || return 0
-  warn "sbx has a host-wide $service secret; with one stored, $1's own sign-in inside the sandbox has failed with 401 errors:"
+  warn "sbx has a host-wide $service secret, so $1's own sign-in inside the sandbox cannot work:"
   host_wide_secret_advice "$service"
 }
 # Run one of Boxen's guest scripts by name. The image keeps them under
@@ -411,7 +409,7 @@ offer_agent_login() {
   # status prints the agent's name, so the host knows which service to check.
   agent="$(guest_script "$1" agent-login.sh status </dev/null 2>/dev/null)" || status=$?
   [[ "$status" == 10 ]] || return 0
-  # Beside a host-wide secret that sign-in has been seen to fail; say so instead.
+  # That sign-in cannot succeed beside a host-wide secret; say why instead.
   if host_wide_agent_secret "$agent" >/dev/null; then warn_host_wide_agent_secret "$agent"; return 0; fi
   read_value answer "$1's agent is not signed in. Sign in to your subscription now? [Y/n] "
   case "$answer" in n|N|no|No|NO) return 0 ;; esac
@@ -1022,7 +1020,7 @@ cmd_doctor() {
   fi
   for agent in claude codex; do
     service="$(host_wide_agent_secret "$agent")" || continue
-    printf 'Warning: sbx has a host-wide %s secret; with one stored, %s'"'"'s own sign-in inside a sandbox has failed with 401 errors:\n' "$service" "$agent"
+    printf 'Warning: sbx has a host-wide %s secret, so %s'"'"'s own sign-in inside a sandbox cannot work:\n' "$service" "$agent"
     host_wide_secret_advice "$service" 2>&1
   done
   sbx ls
