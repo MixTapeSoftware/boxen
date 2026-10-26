@@ -311,7 +311,7 @@ provisioning. Leave any blank to skip it.
 
 | Plugin | Asks for | Where it goes |
 |---|---|---|
-| gh-auth | A fine-grained GitHub token (Contents read/write, Metadata read-only) | An sbx secret scoped to this sandbox; the `gh-auth` mixin declares it as a proxy-managed `GH_TOKEN`, so the proxy injects it and the sandbox sees a placeholder |
+| gh-auth | A fine-grained GitHub token (Contents read/write, Metadata read-only) | An sbx secret scoped to this sandbox; the `gh-auth` mixin declares it as a proxy-managed `GH_TOKEN`, so the proxy injects it and the sandbox sees a placeholder. Needs the binding `./install` writes (below) |
 | 1pass | A 1Password service account token | Inside the sandbox, for `op`; the agent can read it |
 | tailscale | An auth key tagged `tag:boxen`, and a dev port for :443 unless Supabase Serve is selected | Straight to the sandbox's tailnet join; not stored |
 
@@ -328,6 +328,26 @@ boxen auth 1password my-project github 'op://Work/GitHub/token'  # host op:// re
 
 Sandbox-scoped sbx secrets are removed with the sandbox. `--gh-token-stdin`
 reads the token from stdin's first line instead of a prompt, for scripts.
+
+A stored token is not enough on its own. sbx lets a third-party kit use a
+secret only after you approve a *binding* for that service, normally through a
+prompt the first time the kit runs interactively. Boxen starts every sandbox
+detached, so that prompt is never shown; sbx then starts the sandbox with the
+credential withheld, the proxy passes GitHub traffic through untouched
+(`sbx policy log NAME` shows `forward-bypass`), and `gh` gets "Bad credentials"
+from the placeholder. `./install` therefore writes the approval to
+`~/.config/sbx/credentials.yaml`:
+
+~~~yaml
+bindings:
+  github:
+    apiKey:
+      domains: [api.github.com, github.com, gist.github.com]
+~~~
+
+If that file already exists, `install` prints the block for you to merge
+instead of editing it. `create` refuses `gh-auth` until the binding is there,
+and `doctor` reports it. The binding is an approval record, not a secret.
 
 Sandboxes created before v3 keep their scripts in an older place;
 `boxen NAME`, `shell`, `check` and the sign-in offer still work on them, and
