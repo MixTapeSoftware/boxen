@@ -90,6 +90,30 @@ if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
   warn "$bin_dir is not in your PATH. Add to ~/.zshrc or ~/.bashrc:"
   printf '  export PATH="$HOME/.local/bin:$PATH"\n'
 fi
+
+# sbx lets a third-party kit use a stored secret only after the user approves
+# a binding for that service, through a prompt on the kit's first interactive
+# run. Boxen starts every sandbox detached, so the prompt is never seen and
+# the gh-auth mixin's token would be withheld: GitHub then receives the
+# placeholder. The binding is an approval record, not a secret.
+credentials="${BOXEN_SBX_CREDENTIALS:-$HOME/.config/sbx/credentials.yaml}"
+binding='bindings:
+  github:
+    apiKey:
+      domains: [api.github.com, github.com, gist.github.com]'
+if [[ ! -e "$credentials" ]]; then
+  mkdir -p "$(dirname "$credentials")"
+  printf '# Written by boxen'"'"'s install. Approves the gh-auth mixin'"'"'s use of the github secret.\n%s\n' "$binding" > "$credentials"
+  log "Approved the gh-auth mixin's GitHub credential in $credentials"
+  # sandboxd reads the file when it starts and not again.
+  echo 'If sbx is already running, run: sbx daemon restart (stops running sandboxes;'
+  echo 'resume one with sbx run -d --name NAME). Until then the token is withheld.'
+elif grep -Eq '^[[:space:]]+github:[[:space:]]*$' "$credentials"; then
+  log "GitHub credential binding present in $credentials"
+else
+  warn "$credentials exists without a github binding; gh-auth sandboxes get no token until it holds:"
+  printf '%s\n' "$binding" | sed 's/^/  /'
+fi
 echo
 log 'For --tailscale sandboxes. Add this to your tailnet policy:'
 cat <<'EOF'

@@ -136,6 +136,10 @@ class CLI(unittest.TestCase):
         )
         for knob in ("BOXEN_CPUS", "BOXEN_MEMORY"):
             self.env.pop(knob, None)
+        # sbx's approval record for the gh-auth mixin's credential; install writes it.
+        self.credentials = self.directory / "credentials.yaml"
+        self.credentials.write_text("bindings:\n  github:\n    apiKey:\n      domains: [api.github.com, github.com]\n")
+        self.env["BOXEN_SBX_CREDENTIALS"] = str(self.credentials)
         # Prevent real global Git identity/configuration from affecting tests.
         self.env["GIT_CONFIG_GLOBAL"] = str(self.directory / "gitconfig")
         self.env["GIT_CONFIG_NOSYSTEM"] = "1"
@@ -481,7 +485,7 @@ class CLI(unittest.TestCase):
         self.assertEqual(code, 0, output)
         calls = self.calls()
         github = next(c for c in calls if c["args"][:2] == ["secret", "set"])
-        self.assertEqual(github["args"], ["secret", "set", "--sandbox", "box", "github"])
+        self.assertEqual(github["args"], ["secret", "set", "--sandbox", "box", "github", "--force"])
         self.assertEqual(base64.b64decode(github["stdin_b64"]).decode(), "github_pat_fake")
         op = next(c for c in calls if c["args"][-1] == "OP_SERVICE_ACCOUNT_TOKEN")
         line = base64.b64decode(op["stdin_b64"]).decode()
@@ -809,8 +813,28 @@ class CLI(unittest.TestCase):
         self.sandboxes("box")
         self.cli("auth", "github", "box", stdin="github_pat_example")
         call = self.calls()[0]
-        self.assertEqual(call["args"], ["secret", "set", "--sandbox", "box", "github"])
+        # sbx 0.49 asks before overwriting a stored secret; piped stdin cannot answer.
+        self.assertEqual(call["args"], ["secret", "set", "--sandbox", "box", "github", "--force"])
         self.assertEqual(base64.b64decode(call["stdin_b64"]).decode(), "github_pat_example")
+
+    def test_create_refuses_gh_auth_without_the_credential_binding(self):
+        # Boxen starts sandboxes detached, so sbx's approval prompt for a
+        # third-party kit's credential is never answered: the proxy would
+        # withhold the token and GitHub would see the placeholder.
+        self.credentials.unlink()
+        result = self.cli("create", "box", "--no-copy", "--plugins", "gh-auth", ok=False)
+        self.assertIn("./install", result.stderr)
+        self.assertIn(str(self.credentials), result.stderr)
+        self.assertEqual(self.calls(), [])
+        self.cli("create", "plain", "--no-copy", "--plugins", "tailscale")
+        self.assertEqual(self.calls()[0]["args"][0], "create")
+
+    def test_doctor_reports_the_github_binding(self):
+        self.assertIn("GitHub binding: ok", self.cli("doctor").stdout)
+        self.credentials.write_text("bindings:\n  anthropic:\n    apiKey:\n      domains: [api.anthropic.com]\n")
+        result = self.cli("doctor")
+        self.assertIn("GitHub binding: missing", result.stdout)
+        self.assertIn("./install", result.stdout)
 
     def test_secret_sources_are_host_references(self):
         self.sandboxes("scratch")
@@ -827,6 +851,7 @@ class CLI(unittest.TestCase):
         command = self.calls()[0]["args"]
         self.assertEqual(command[:6], ["secret", "set", "--sandbox", "scratch", "github", "--command"])
         self.assertEqual(command[6], str(tools / "gh").replace(" ", "\\ ") + " auth token")
+        self.assertEqual(command[7:], ["--force"])
         self.assertEqual(self.calls()[1]["args"][-2:], ["--ref", "op://Work/GitHub/token"])
 
     # --- host housekeeping -----------------------------------------------------

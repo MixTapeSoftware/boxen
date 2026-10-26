@@ -101,6 +101,32 @@ class Install(unittest.TestCase):
         self.assertIn('"src": ["group:admin"], "dst": ["*:*"]', result.stdout)
         self.assertIn("https://tailscale.com/kb/1018/acls", result.stdout)
 
+    def test_writes_the_github_credential_binding(self):
+        # sbx approves a third-party kit's credential through a prompt on the
+        # first interactive run; boxen's sandboxes start detached, so the
+        # binding is written here instead.
+        credentials = self.home / ".config/sbx/credentials.yaml"
+        result = self.install("--no-chadmux")
+        self.assertIn("Approved the gh-auth", result.stdout)
+        self.assertEqual(credentials.read_text().splitlines()[-4:], [
+            "bindings:", "  github:", "    apiKey:", "      domains: [api.github.com, github.com, gist.github.com]"])
+        # sandboxd reads the file when it starts and not again.
+        self.assertIn("sbx daemon restart", result.stdout)
+        self.assertIn("stops running sandboxes", result.stdout)
+        result = self.install("--no-chadmux")
+        self.assertIn("binding present", result.stdout)
+        self.assertNotIn("sbx daemon restart", result.stdout)
+
+    def test_leaves_someone_elses_credentials_file_alone(self):
+        credentials = self.home / ".config/sbx/credentials.yaml"
+        credentials.parent.mkdir(parents=True)
+        before = "bindings:\n  anthropic:\n    apiKey:\n      domains: [api.anthropic.com]\n"
+        credentials.write_text(before)
+        result = self.install("--no-chadmux")
+        self.assertEqual(credentials.read_text(), before)
+        self.assertIn("without a github binding", result.stderr)
+        self.assertIn("domains: [api.github.com, github.com, gist.github.com]", result.stdout)
+
     def test_keeps_a_file_in_the_way(self):
         target = self.home / ".local/bin/boxen"
         target.parent.mkdir(parents=True)

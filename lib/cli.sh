@@ -15,6 +15,12 @@ SERVICE_VARS="ANTHROPIC_API_KEY:anthropic OPENAI_API_KEY:openai XAI_API_KEY:xai 
 # array; boxen passes run -d and reads either listing, so 0.47 still works.
 MIN_SBX_VERSION=0.47.0
 STATE_DIR="${BOXEN_STATE_DIR:-$HOME/.local/state/boxen}"
+# sbx's approval record for third-party kit credentials; install writes the
+# github binding, since a detached sandbox never sees sbx's approval prompt.
+SBX_CREDENTIALS="${BOXEN_SBX_CREDENTIALS:-$HOME/.config/sbx/credentials.yaml}"
+github_binding_present() {
+  [[ -f "$SBX_CREDENTIALS" ]] && grep -Eq '^[[:space:]]+github:[[:space:]]*$' "$SBX_CREDENTIALS"
+}
 REGISTRY="$STATE_DIR/sandboxes"
 LOG_DIR="$STATE_DIR/logs"
 CRON_TAG="# boxen-update-all"
@@ -486,6 +492,11 @@ create() {
       *) log "RTK hooks apply to Claude and Codex; not added for $agent"; drop_plugin rtkplus ;;
     esac
   fi
+  # Without the binding the proxy withholds the token and GitHub sees the
+  # placeholder, with nothing in the sandbox to say why.
+  if has_plugin gh-auth && ! github_binding_present; then
+    die "gh-auth needs sbx's approval to use the github secret, and a detached sandbox cannot ask for it. Run ./install, which writes the binding to $SBX_CREDENTIALS, then create again."
+  fi
   if [[ -z "$cpus" ]]; then
     cpus="$(host_cpus)"
     if [[ "$cpus" -gt 4 ]]; then cpus=4; fi
@@ -595,7 +606,7 @@ create() {
     fi
   done
   if [[ -n "$gh_token" ]]; then
-    printf '%s' "$gh_token" | sbx secret set --sandbox "$name" github ||
+    printf '%s' "$gh_token" | sbx secret set --sandbox "$name" github --force ||
       warn "Storing the GitHub token failed; retry with: boxen auth github $name"
   elif has_plugin gh-auth; then
     printf 'Add a GitHub token later: boxen auth github %s\n' "$name"
@@ -866,17 +877,18 @@ auth() {
         gh_path="$(type -P gh)" || die 'Install and sign in to gh on the host first.'
         printf 'Using the host gh token; it carries every scope gh was granted.\n' >&2
         # sbx runs command secrets from a temporary directory, and its daemon's
-        # PATH may not include gh's; use an absolute path.
-        sbx secret set --sandbox "$name" github --command "$(printf '%q' "$gh_path") auth token"
+        # PATH may not include gh's; use an absolute path. --force: sbx 0.49
+        # asks before replacing a stored secret, and only a terminal could answer.
+        sbx secret set --sandbox "$name" github --command "$(printf '%q' "$gh_path") auth token" --force
       elif [[ -t 0 ]]; then
         printf 'Create a fine-grained token at https://github.com/settings/personal-access-tokens/new\n' >&2
         printf 'Recommended permissions: Contents read/write, Metadata read-only.\n' >&2
         read_secret token 'GitHub token: '
         [[ -n "$token" ]] || die 'GitHub token required'
-        printf '%s' "$token" | sbx secret set --sandbox "$name" github
+        printf '%s' "$token" | sbx secret set --sandbox "$name" github --force
       else
         # A token piped in goes straight to sbx.
-        sbx secret set --sandbox "$name" github
+        sbx secret set --sandbox "$name" github --force
       fi
       ;;
     1password)
@@ -943,6 +955,11 @@ cmd_doctor() {
     printf 'Docker builder: unavailable (sbx builds local v3 kits with it)\n'; failed=1
   fi
   command -v jq >/dev/null 2>&1 || printf 'Note: kill-all and update-all need jq.\n'
+  if github_binding_present; then
+    printf 'GitHub binding: ok\n'
+  else
+    printf 'GitHub binding: missing (run ./install; without it gh-auth sandboxes get no token)\n'
+  fi
   for service in anthropic openai; do
     if host_wide_secret "$service"; then
       printf 'Note: a host-wide %s secret replaces each sandbox'"'"'s own sign-in (sbx secret rm %s).\n' "$service" "$service"
