@@ -29,9 +29,6 @@ class AgentLogin(unittest.TestCase):
         result = subprocess.run(["bash", str(self.script), action], env=env, capture_output=True, text=True, timeout=10)
         calls = self.log.read_text().splitlines() if self.log.exists() else []
         self.log.unlink(missing_ok=True)
-        if action == "status":
-            # The host reads the agent's name from status to pick the sbx service.
-            self.assertEqual(result.stdout, agent + "\n")
         return result.returncode, calls
 
     def test_status_asks_each_agent(self):

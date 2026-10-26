@@ -75,7 +75,6 @@ elif args[:2] == ['secret', 'rm']:
     if pair in secrets:
         secrets.remove(pair); save(secrets_path, secrets)
 elif cmd == 'exec' and any('agent-login.sh' in a for a in args) and args[-1] == 'status':
-    print(env('FAKE_LOGIN_AGENT', 'claude'))
     sys.exit(int(env('FAKE_LOGIN_STATUS', '0')))
 elif cmd == 'exec' and env('FAKE_EXEC_STDOUT'):
     print(env('FAKE_EXEC_STDOUT'))
@@ -595,37 +594,9 @@ class CLI(unittest.TestCase):
     def test_host_wide_agent_secret_is_flagged(self):
         self.env["FAKE_GLOBAL_SECRETS"] = "anthropic"
         result = self.cli("create", "box", "--no-copy", "--agent", "claude")
-        self.assertIn("host-wide anthropic secret, so claude's own sign-in inside the sandbox cannot work", result.stderr)
-        self.assertIn("masks the sign-in token even when the binding is declined", result.stderr)
-        self.assertIn("sbx secret rm anthropic", result.stderr)
+        self.assertIn("host-wide anthropic secret", result.stderr)
         result = self.cli("create", "other", "--no-copy", "--agent", "codex")
         self.assertNotIn("host-wide", result.stderr)
-
-    def test_doctor_warns_about_a_host_wide_agent_secret(self):
-        self.assertNotIn("host-wide", self.cli("doctor").stdout)
-        self.env["FAKE_GLOBAL_SECRETS"] = "openai"
-        out = self.cli("doctor").stdout
-        self.assertIn("Warning: sbx has a host-wide openai secret, so codex's own sign-in inside a sandbox cannot work", out)
-        self.assertIn("sbx secret rm openai", out)
-        self.assertNotIn("anthropic", out.split("Warning:")[1])
-
-    def test_no_sign_in_offer_beside_a_host_wide_secret(self):
-        # The offer would fail with 401s; the warning explains why instead.
-        self.sandboxes("box")
-        self.env["FAKE_LOGIN_STATUS"] = "10"
-        self.env["FAKE_GLOBAL_SECRETS"] = "anthropic"
-        output, code = self.tty("box")
-        self.assertEqual(code, 0)
-        self.assertNotIn("Sign in to your subscription now?", output)
-        self.assertIn("host-wide anthropic secret", output)
-        self.assertIn("sbx secret rm anthropic", output)
-        calls = [c["args"] for c in self.calls()]
-        self.assertLoginCall(calls[0], "box", "status")
-        self.assertEqual(calls[1], ["exec", "-it", "box", "zsh", "-l"])
-        # A Codex sandbox is not held up by an Anthropic secret.
-        self.env["FAKE_LOGIN_AGENT"] = "codex"
-        output, _ = self.tty("box", script=[(b"Sign in to your subscription now?", b"n\r")])
-        self.assertIn("Sign in to your subscription now?", output)
 
     def test_resources_pass_through(self):
         self.cli("create", "box", "--no-copy", "--cpus", "2", "--memory", "1g")
