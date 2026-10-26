@@ -1,6 +1,6 @@
 Plugin	What it adds
-tailscale	Userspace daemon with a per-sandbox identity kept in the sandbox
-supabase-serve	Seven tailnet HTTPS routes for an app and Supabase; adds tailscale
+tailscale	Userspace daemon with a per-sandbox identity and a random node name; previews over http on any port, or https for one
+supabase-serve	Seven tailnet HTTPS routes for an app and Supabase (fetches a certificate); adds tailscale
 gh-auth	Git credential helper; token from boxen auth github
 1pass	1Password's hosts for op; host op:// references through boxen auth 1password
 rtkplus	RTK hooks for Claude or Codex

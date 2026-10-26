@@ -672,7 +672,11 @@ class Mixins(ScriptCase):
         self.assertEqual(len(install), 1)
         self.assertEqual((install[0]["user"], install[0]["env"]), ("0", ["BOXEN_SERVE_PRESET"]))
         self.assertIn("/etc/boxen/serve-preset", command_text(install[0]))
-        self.assertEqual(allowed("tailscale"), ["tailscale.com", "*.tailscale.com", "*.tailscale.io"])
+        # tailscale serve --https fetches the node's certificate from Let's Encrypt itself.
+        self.assertEqual(
+            allowed("tailscale"),
+            ["tailscale.com", "*.tailscale.com", "*.tailscale.io", "acme-v02.api.letsencrypt.org"],
+        )
 
     def test_gh_auth_credential_is_proxy_managed_within_its_allow_list(self):
         cred = capability("gh-auth", "credential@1")

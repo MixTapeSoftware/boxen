@@ -211,7 +211,7 @@ workload, each a single YAML file that runs scripts the image already has:
 | Mixin | What it adds |
 |---|---|
 | `v3/workspace` | The agent-owned workspace and the `/workspace` link (copied and empty workspaces) |
-| `v3/tailscale` | A userspace Tailscale node per sandbox; with Supabase Serve, the seven routes |
+| `v3/tailscale` | A userspace Tailscale node per sandbox, under a random name; with Supabase Serve, the seven routes |
 | `v3/gh-auth` | A proxy-managed GitHub token, and Git's credential helper through gh |
 | `v3/1pass` | 1Password's hosts for the baked op CLI |
 | `v3/rtkplus-claude`, `v3/rtkplus-codex` | RTK's hook for that agent |
@@ -313,7 +313,7 @@ provisioning. Leave any blank to skip it.
 |---|---|---|
 | gh-auth | A fine-grained GitHub token (Contents read/write, Metadata read-only) | An sbx secret scoped to this sandbox; the `gh-auth` mixin declares it as a proxy-managed `GH_TOKEN`, so the proxy injects it and the sandbox sees a placeholder. Needs the binding `./install` writes (below) |
 | 1pass | A 1Password service account token | Inside the sandbox, for `op`; the agent can read it |
-| tailscale | An auth key tagged `tag:boxen`, and a dev port for :443 unless Supabase Serve is selected | Straight to the sandbox's tailnet join; not stored |
+| tailscale | An auth key tagged `tag:boxen`, then a choice: previews over http on any port (the default, no certificate), or one dev port served over HTTPS on :443. HTTPS fetches a Let's Encrypt certificate, which lists the node's name in the public certificate logs; the node itself stays reachable only from your tailnet. Supabase Serve is HTTPS, so it skips the question | Straight to the sandbox's tailnet join; not stored |
 
 Without a terminal, or after skipping, add them later:
 
@@ -435,6 +435,13 @@ The key travels on stdin into a temporary guest file with private permissions.
 Tailscale receives that file's path; the file is removed afterward. No auth
 key belongs in a kit, CLI argument, image, shell profile, or environment file.
 
+The node joins as `boxen-` plus eight random hex digits, not as the sandbox's
+name. When `tailscale serve` fetches the node's HTTPS certificate from Let's
+Encrypt, that certificate, with the node's full name, goes into the public
+Certificate Transparency logs; only your tailnet can reach the node, but
+anyone can read what it is called. The guest keeps the random name, so a
+rejoin reuses it; `join` prints it, and `status` lists it first.
+
 **The sandbox runs an agent you do not fully trust, and a joined sandbox is a
 node on your tailnet, outside sbx's network policy.** Three things keep that
 in check:
@@ -495,10 +502,30 @@ in check:
 3. **Use `--tailscale` only on sandboxes that need previews.** The mixin
    allows `*.tailscale.com`, which every tailnet shares, so an agent on such a
    sandbox could join a tailnet of its own and move data through it. Boxen
-   cannot prevent that; the sbx network policy is the only control.
+   cannot prevent that; the sbx network policy is the only control. It also
+   allows `acme-v02.api.letsencrypt.org`, which `tailscale serve` needs to
+   fetch the node's HTTPS certificate.
 
 The node has no operator, so the agent cannot change its settings; `join`,
 `serve` and `status` run as root.
+
+### Previews: http by default, HTTPS by choice
+
+Once joined, `http://NODE.TAILNET.ts.net:PORT` reaches any port the sandbox
+listens on: userspace tailscaled forwards an incoming tailnet connection to the
+same port on the guest's loopback, so there is nothing to configure and no
+certificate is issued. `join` prints the node's name. The link is already
+encrypted by WireGuard; what plain http loses is the browser's secure context
+(service workers, `crypto.subtle`, `Secure` cookies), which a dev preview
+rarely needs. With http, the policy rule above should list the ports your apps
+listen on, such as `tag:boxen:3000,54323`, instead of the HTTPS ports.
+
+`serve` publishes one port, or the Supabase preset, over HTTPS instead. That
+fetches a Let's Encrypt certificate, which lists the node's name in the public
+Certificate Transparency logs; the node itself stays reachable only from your
+tailnet, and the name is random (above), so the record says that your tailnet
+runs Boxen and nothing more. In a terminal, `create` asks which you want after
+the auth key; `serve` and Supabase Serve say so before they fetch anything.
 
 ~~~bash
 ./boxen tailscale serve my-project 5173
@@ -522,8 +549,8 @@ selected; run the app on port 3000. The preset configures routes, but does not
 install or start Supabase. Enable Tailscale HTTPS when requested by Tailscale's
 own flow.
 
-Each environment has a separate node identity named after its sandbox. Its
-state lives in `/var/lib/tailscale` on the sandbox's own disk: it survives a
+Each environment has a separate node identity under its own random `boxen-`
+name. Its state lives in `/var/lib/tailscale` on the sandbox's own disk: it survives a
 stop and resume and goes away with the sandbox. Do not export an enrolled
 environment as an image; it would carry the identity, and this wrapper
 deliberately has no template-export command.

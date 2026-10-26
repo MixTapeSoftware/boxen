@@ -124,6 +124,7 @@ boxen auth 1password NAME SERVICE OP_REFERENCE
 boxen tailscale join NAME [--auth-key-stdin]
 boxen tailscale status NAME
 boxen tailscale serve NAME PORT|supabase     Publish HTTPS :443 or the seven preset routes
+                                             (fetches a certificate; http needs no serve)
 
 Commands that take NAME never create a sandbox; only create does.
 EOF
@@ -575,8 +576,12 @@ create() {
     if has_plugin tailscale; then
       printf '\nTailscale: an auth key tagged tag:boxen from https://login.tailscale.com/admin/settings/keys\n'
       read_secret ts_key 'Tailscale auth key (blank to join later): '
-      if [[ -n "$ts_key" ]] && ! has_plugin supabase-serve; then
-        read_value ts_port 'Dev port to serve on :443 (blank to skip): '
+      if [[ -n "$ts_key" ]] && has_plugin supabase-serve; then
+        printf 'Supabase Serve publishes its routes over HTTPS. '; https_note
+      elif [[ -n "$ts_key" ]]; then
+        printf 'Previews: once joined, http://NODE.TAILNET.ts.net:PORT reaches any port the sandbox\n'
+        printf 'listens on, with no certificate. Serving one port over HTTPS instead '; https_note
+        read_value ts_port 'Dev port to serve over HTTPS on :443 (blank to stay on http): '
         [[ -z "$ts_port" || "$ts_port" =~ $port_re ]] || die "Not a port: $ts_port"
       fi
     fi
@@ -619,7 +624,7 @@ create() {
   fi
   gh_token="" op_token=""
   if [[ -n "$ts_key" ]]; then
-    if printf '%s\n' "$ts_key" | as_root "$name" -i /usr/local/bin/boxen-tailscale join "$name" --auth-key-stdin; then
+    if printf '%s\n' "$ts_key" | as_root "$name" -i /usr/local/bin/boxen-tailscale join --auth-key-stdin; then
       if [[ -n "$ts_port" ]]; then
         as_root "$name" /usr/local/bin/boxen-tailscale serve "$ts_port" ||
           warn "Serving port $ts_port failed; retry with: boxen tailscale serve $name $ts_port"
@@ -908,10 +913,10 @@ tailscale_command() {
   case "$action" in
     join)
       if [[ $# == 0 ]]; then
-        as_root "$name" /usr/local/bin/boxen-tailscale join "$name"
+        as_root "$name" /usr/local/bin/boxen-tailscale join
       elif [[ $# == 1 && "$1" == --auth-key-stdin ]]; then
         [[ ! -t 0 ]] || die 'Pipe an auth key on stdin; do not pass it as an argument.'
-        as_root "$name" -i /usr/local/bin/boxen-tailscale join "$name" --auth-key-stdin
+        as_root "$name" -i /usr/local/bin/boxen-tailscale join --auth-key-stdin
       else die 'Use: tailscale join NAME [--auth-key-stdin]'; fi
       ;;
     status)
@@ -919,9 +924,16 @@ tailscale_command() {
       as_root "$name" tailscale status ;;
     serve)
       [[ $# == 1 ]] || die 'Use: tailscale serve NAME PORT|supabase'
+      printf 'HTTPS '; https_note
       as_root "$name" /usr/local/bin/boxen-tailscale serve "$1" ;;
     *) die "Unknown tailscale action: $action" ;;
   esac
+}
+
+# What serving over HTTPS makes public. Printed after a lead-in such as "HTTPS ".
+https_note() {
+  printf 'fetches a Let'"'"'s Encrypt certificate, which lists the node'"'"'s name in the public\n'
+  printf 'certificate logs; the node itself stays reachable only from your tailnet.\n'
 }
 
 # Compare dotted versions: version_ge 0.47.1 0.47.0
