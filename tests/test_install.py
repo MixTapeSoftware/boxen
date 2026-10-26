@@ -82,24 +82,10 @@ class Install(unittest.TestCase):
         self.install()
         self.assertTrue(link.is_symlink())
 
-    def test_prints_the_tailnet_policy_to_add(self):
-        # The snippet joins the user's existing policy; it is not the whole file.
+    def test_says_nothing_about_the_tailnet_policy(self):
+        # Only a sandbox with the tailscale plugin needs it; create shows it then.
         result = self.install("--no-chadmux")
-        self.assertIn("Add this to your tailnet policy", result.stdout)
-        self.assertIn("not a replacement", result.stdout)
-        # The acls form: every policy file has that section, grants is newer.
-        for line in ('"tagOwners": {"tag:boxen": ["autogroup:admin"]}',
-                     '"acls": [', '"action": "accept", "proto": "tcp"',
-                     '"src": ["autogroup:member"]',
-                     '"dst": ["tag:boxen:443,4410,4431,5432,5433,5434,8443"]',
-                     "funnel"):
-            self.assertIn(line, result.stdout)
-        self.assertNotIn("grants", result.stdout)
-        # One way among several: an admin rule that already reaches everything
-        # covers sandboxes too, and the docs are where to learn the rest.
-        self.assertIn("more than one way", result.stdout)
-        self.assertIn('"src": ["group:admin"], "dst": ["*:*"]', result.stdout)
-        self.assertIn("https://tailscale.com/kb/1018/acls", result.stdout)
+        self.assertNotIn("tagOwners", result.stdout + result.stderr)
 
     def test_writes_the_github_credential_binding(self):
         # sbx approves a third-party kit's credential through a prompt on the

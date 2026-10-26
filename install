@@ -121,29 +121,4 @@ else
   warn "$credentials exists without a github binding; gh-auth sandboxes get no token until it holds:"
   printf '%s\n' "$binding" | sed 's/^/  /'
 fi
-echo
-log 'For --tailscale sandboxes. Add this to your tailnet policy:'
-cat <<'EOF'
-  {
-    "tagOwners": {"tag:boxen": ["autogroup:admin"]},
-    "acls": [
-      {
-        "action": "accept", "proto": "tcp",
-        "src": ["autogroup:member"],
-        "dst": ["tag:boxen:443,4410,4431,5432,5433,5434,8443"]
-      }
-    ]
-    // No "funnel" nodeAttrs entry may target tag:boxen or "*".
-  }
-EOF
-echo 'It is an addition to your existing rules, not a replacement for them: merge the'
-echo 'tagOwners and the acl into your policy. Any other rule that already reaches'
-echo 'tag:boxen, such as the default allow-all, still applies.'
-echo
-echo 'There is more than one way to write this. If your policy already says who may'
-echo 'reach everything, that rule covers sandboxes too and the acl above adds nothing:'
-echo '  {"action": "accept", "src": ["group:admin"], "dst": ["*:*"]}'
-echo 'What matters either way: tag:boxen is in tagOwners, no rule has tag:boxen as'
-echo 'src, and no funnel nodeAttrs entry names it. Read up before editing:'
-echo 'https://tailscale.com/kb/1018/acls and the README, "Tailscale and previews".'
 log 'Done. Next: bxn doctor'

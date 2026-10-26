@@ -529,6 +529,29 @@ class CLI(unittest.TestCase):
         self.assertIn("bxn tailscale join box", result.stdout)
         self.assertFalse(any(c["args"][:2] == ["secret", "set"] or "--auth-key-stdin" in c["args"] for c in self.calls()))
 
+    def test_tailnet_policy_is_shown_only_with_tailscale(self):
+        # The snippet joins the user's existing policy; it is not the whole file.
+        out = self.cli("create", "ts", "--no-copy", "--plugins", "tailscale").stdout
+        self.assertIn("Tailnet policy:", out)
+        for line in ('"tagOwners": {"tag:boxen": ["autogroup:admin"]}',
+                     '"acls": [', '"action": "accept", "proto": "tcp"',
+                     '"src": ["autogroup:member"]',
+                     '"dst": ["tag:boxen:443,4410,4431,5432,5433,5434,8443"]',
+                     "funnel", "replaces nothing"):
+            self.assertIn(line, out)
+        self.assertEqual(out.count("tagOwners"), 2)
+        self.assertNotIn("grants", out)
+        # One way among several: an admin rule that already reaches everything
+        # covers sandboxes too, and the docs are where to learn the rest.
+        self.assertIn("more than one way", out)
+        self.assertIn('"src": ["group:admin"], "dst": ["*:*"]', out)
+        self.assertIn("https://tailscale.com/kb/1018/acls", out)
+        # Supabase Serve adds tailscale, so it needs the policy too.
+        self.assertIn("Tailnet policy:", self.cli("create", "serve", "--no-copy", "--plugins", "supabase-serve").stdout)
+        for plugins in ("none", "gh-auth,1pass,rtkplus"):
+            result = self.cli("create", "plain-" + plugins[:4], "--no-copy", "--plugins", plugins)
+            self.assertNotIn("tagOwners", result.stdout + result.stderr)
+
     def test_sign_in_is_offered_on_the_way_in(self):
         self.sandboxes("box")
         self.env["FAKE_LOGIN_STATUS"] = "10"

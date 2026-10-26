@@ -458,7 +458,7 @@ in check:
    userspace mode, tailscaled forwards an incoming connection to the same
    port on the guest's `127.0.0.1`: not only the served routes, but Postgres,
    the dev server and anything the agent starts listening on. Add the
-   following to your policy (`./install` prints it too). It is an addition to
+   following to your policy (`bxn create` prints it too when the tailscale plugin is on). It is an addition to
    your existing rules, not a replacement for them: merge the `tagOwners` and
    the acl into yours. Rules are additive, so any other rule that reaches
    `tag:boxen`, such as Tailscale's default allow-all, still applies and

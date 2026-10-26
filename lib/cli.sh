@@ -320,6 +320,32 @@ copy_workspace() {
     sbx exec -i --workdir /home/agent/workspace "$name" \
       tar --no-same-owner --warning=no-unknown-keyword -xf -
 }
+# Shown once per create with the tailscale plugin (Supabase Serve adds it):
+# the node is tagged tag:boxen, so the tailnet policy decides who reaches it.
+tailnet_policy_hint() {
+  cat <<'EOF'
+
+Tailnet policy: if tag:boxen is not in it yet, add this (merge it into your
+existing rules; it replaces nothing):
+  {
+    "tagOwners": {"tag:boxen": ["autogroup:admin"]},
+    "acls": [
+      {
+        "action": "accept", "proto": "tcp",
+        "src": ["autogroup:member"],
+        "dst": ["tag:boxen:443,4410,4431,5432,5433,5434,8443"]
+      }
+    ]
+    // No "funnel" nodeAttrs entry may target tag:boxen or "*".
+  }
+There is more than one way to write this. If your policy already says who may
+reach everything, that rule covers sandboxes too and the acl above adds nothing:
+  {"action": "accept", "src": ["group:admin"], "dst": ["*:*"]}
+What matters either way: tag:boxen is in tagOwners, no rule has tag:boxen as
+src, and no funnel nodeAttrs entry names it. Read up before editing:
+https://tailscale.com/kb/1018/acls and the README, "Tailscale and previews".
+EOF
+}
 created_but() {
   printf 'bxn: Sandbox %s was created, but %s failed.\n' "$1" "$2" >&2
   printf 'Look inside with: bxn shell %s\n' "$1" >&2
@@ -638,6 +664,7 @@ create() {
   fi
   if has_plugin tailscale; then
     printf 'Once joined, the sandbox reaches whatever your tailnet ACLs allow, outside sbx network policy.\n'
+    tailnet_policy_hint
   fi
   offer_agent_login "$name"
   # Last, after sbx's own "To connect" hint, so this is what stays on screen.
