@@ -531,8 +531,8 @@ selected; run the app on port 3000. The preset configures routes, but does not
 install or start Supabase. Enable Tailscale HTTPS when requested by Tailscale's
 own flow.
 
-Each environment has a separate node identity named after its sandbox. Its
-state lives in `/var/lib/tailscale` on the sandbox's own disk: it survives a
+Each environment has a separate node identity under its own random `boxen-`
+name. Its state lives in `/var/lib/tailscale` on the sandbox's own disk: it survives a
 stop and resume and goes away with the sandbox. Do not export an enrolled
 environment as an image; it would carry the identity, and this wrapper
 deliberately has no template-export command.
