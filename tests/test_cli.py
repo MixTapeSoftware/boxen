@@ -75,6 +75,7 @@ elif args[:2] == ['secret', 'rm']:
     if pair in secrets:
         secrets.remove(pair); save(secrets_path, secrets)
 elif cmd == 'exec' and any('agent-login.sh' in a for a in args) and args[-1] == 'status':
+    print(env('FAKE_LOGIN_AGENT', 'codex'))
     sys.exit(int(env('FAKE_LOGIN_STATUS', '0')))
 elif cmd == 'exec' and env('FAKE_EXEC_STDOUT'):
     print(env('FAKE_EXEC_STDOUT'))
@@ -220,7 +221,7 @@ class CLI(unittest.TestCase):
         self.cli("create", "full", "--no-copy", "--plugins", "all", "--claude")
         args = self.calls()[0]["args"]
         self.assertEqual(self.agent_mixins(args), [mixin("claude")])
-        self.assertEqual(self.kits(args), ["workspace", "tailscale", "gh-auth", "1pass", "rtkplus-claude"])
+        self.assertEqual(self.kits(args), ["claude-token", "workspace", "tailscale", "gh-auth", "1pass", "rtkplus-claude"])
         self.assertIn("BOXEN_SERVE_PRESET=supabase", args)
         self.assertNotIn("chadmux", " ".join(args))
         self.assertEqual(args[args.index("--skills") + 1], "off")
@@ -234,7 +235,7 @@ class CLI(unittest.TestCase):
     def test_plugin_flags_add_to_the_defaults(self):
         self.cli("create", "box", "--no-copy", "--tailscale", "--gh-token", "--1pass", "--claude", "--no-tui")
         args = self.calls()[0]["args"]
-        self.assertEqual(self.kits(args), ["workspace", "tailscale", "gh-auth", "1pass"])
+        self.assertEqual(self.kits(args), ["claude-token", "workspace", "tailscale", "gh-auth", "1pass"])
         self.assertEqual(self.agent_mixins(args), [mixin("claude")])
         self.assertEqual(args[-1], WORKLOAD)
 
@@ -553,6 +554,57 @@ class CLI(unittest.TestCase):
             result = self.cli("create", "plain-" + plugins[:4], "--no-copy", "--plugins", plugins)
             self.assertNotIn("tagOwners", result.stdout + result.stderr)
 
+    def test_claude_token_is_stored_before_the_sandbox_exists(self):
+        # The kits decide at create whether a token is bound, so it goes in first,
+        # whitespace stripped: a trailing newline earns a 401 from Anthropic.
+        output, code = self.tty("create", "box", "--no-copy", "--agent", "claude", "--no-tui",
+                                script=[(b"Claude token (blank to skip):", b" sk-ant-oat01-example \r")])
+        self.assertEqual(code, 0, output)
+        calls = [c["args"] for c in self.calls()]
+        self.assertEqual(calls[0], ["secret", "set", "--sandbox", "box", "anthropic", "--force"])
+        self.assertEqual(calls[1][0], "create")
+        self.assertNotIn("sk-ant-oat01-example", " ".join(" ".join(c) for c in calls))
+        self.assertNotIn("Claude has no token yet", output)
+
+    def test_create_without_a_claude_token_says_how_to_add_one(self):
+        result = self.cli("create", "box", "--no-copy", "--agent", "claude")
+        self.assertIn("Claude has no token yet", result.stdout)
+        self.assertIn("claude setup-token", result.stdout)
+        self.assertIn("bxn auth claude box", result.stdout)
+        self.assertFalse(any(c["args"][:2] == ["secret", "set"] for c in self.calls()))
+        self.assertNotIn("Claude has no token", self.cli("create", "plain", "--no-copy").stdout)
+
+    def test_auth_claude_binds_a_token_now_or_for_later(self):
+        # Before the sandbox exists: stored for create. After: stored and the
+        # guest hook points Claude Code at the placeholder right away.
+        result = self.cli("auth", "claude", "later", stdin="sk-ant-oat01-example\n")
+        self.assertIn("will be used when later is created", result.stdout)
+        calls = [c["args"] for c in self.calls()]
+        self.assertEqual(calls[-1], ["secret", "set", "--sandbox", "later", "anthropic", "--force"])
+        self.assertFalse(any(c[0] == "exec" for c in calls))
+        self.sandboxes("box")
+        result = self.cli("auth", "claude", "box", stdin="sk-ant-oat01-example\n")
+        self.assertIn("bills that token's account", result.stdout)
+        calls = [c["args"] for c in self.calls()]
+        self.assertEqual(calls[-2], ["secret", "set", "--sandbox", "box", "anthropic", "--force"])
+        self.assertEqual(calls[-1][0], "exec")
+        self.assertEqual(calls[-1][-2:], ["claude-token.sh", "--force"])
+        self.assertIn("/usr/local/share/boxen/", " ".join(calls[-1]))
+        self.assertIn("Claude token required", self.cli("auth", "claude", "box", stdin="", ok=False).stderr)
+        self.assertIn("Use: auth claude NAME", self.cli("auth", "claude", "box", "extra", ok=False).stderr)
+
+    def test_claude_gets_the_host_hint_instead_of_a_sign_in_offer(self):
+        self.sandboxes("box")
+        self.env["FAKE_LOGIN_STATUS"] = "10"
+        self.env["FAKE_LOGIN_AGENT"] = "claude"
+        output, code = self.tty("box")
+        self.assertEqual(code, 0, output)
+        self.assertNotIn("Sign in to your subscription now?", output)
+        self.assertIn("bxn auth claude box", output)
+        calls = [c["args"] for c in self.calls()]
+        self.assertLoginCall(calls[0], "box", "status")
+        self.assertEqual(calls[1], ["exec", "-it", "box", "zsh", "-l"])
+
     def test_sign_in_is_offered_on_the_way_in(self):
         self.sandboxes("box")
         self.env["FAKE_LOGIN_STATUS"] = "10"
@@ -595,7 +647,8 @@ class CLI(unittest.TestCase):
     def test_host_wide_agent_secret_is_flagged(self):
         self.env["FAKE_GLOBAL_SECRETS"] = "anthropic"
         result = self.cli("create", "box", "--no-copy", "--agent", "claude")
-        self.assertIn("host-wide anthropic secret", result.stderr)
+        self.assertIn("host-wide anthropic secret, which overrides every sandbox's own token", result.stderr)
+        self.assertIn("sbx secret rm anthropic", result.stderr)
         result = self.cli("create", "other", "--no-copy", "--agent", "codex")
         self.assertNotIn("host-wide", result.stderr)
 

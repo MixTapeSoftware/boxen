@@ -737,6 +737,46 @@ class Mixins(ScriptCase):
         self.assertEqual((claude / "settings.json").read_text(), "{not json")
         self.assertFalse(list(claude.glob("settings.*.tmp")))
 
+    def test_claude_token_hook_turns_the_placeholder_into_a_bearer_token(self):
+        # Docker's mixin seeds an apiKeyHelper that sends the placeholder as an
+        # API key, which Anthropic rejects for a subscription token. With a
+        # token bound (mode apikey) the helper goes and the placeholder is
+        # handed over as CLAUDE_CODE_OAUTH_TOKEN, which Claude Code sends as a
+        # Bearer header the claude-token mixin has the proxy swap.
+        claude = self.directory / ".claude"; claude.mkdir()
+        seeded = '{"themeId": 1, "apiKeyHelper": "echo proxy-managed", "permissions": {"defaultMode": "bypassPermissions"}}\n'
+        (claude / "settings.json").write_text(seeded)
+        env_file = self.directory / ".config/boxen/env.sh"
+        # No token bound: nothing changes.
+        self.run_script("claude-token.sh", env={"SBX_CRED_ANTHROPIC_MODE": "none"})
+        self.assertEqual((claude / "settings.json").read_text(), seeded)
+        self.assertFalse(env_file.exists())
+        self.run_script("claude-token.sh", env={"SBX_CRED_ANTHROPIC_MODE": "apikey"})
+        settings = json.loads((claude / "settings.json").read_text())
+        self.assertNotIn("apiKeyHelper", settings)
+        self.assertEqual(settings["permissions"], {"defaultMode": "bypassPermissions"})
+        self.assertEqual(env_file.read_text(), "export CLAUDE_CODE_OAUTH_TOKEN=proxy-managed\n")
+        self.assertEqual(env_file.stat().st_mode & 0o777, 0o600)
+        # Run again, and by bxn auth claude on an existing sandbox: idempotent, and --force skips the mode check.
+        env_file.write_text("export OTHER=1\nexport CLAUDE_CODE_OAUTH_TOKEN=stale\n")
+        self.run_script("claude-token.sh", "--force", env={"SBX_CRED_ANTHROPIC_MODE": "none"})
+        self.assertEqual(env_file.read_text(), "export OTHER=1\nexport CLAUDE_CODE_OAUTH_TOKEN=proxy-managed\n")
+        self.assertFalse(list(claude.glob("settings.*.tmp")))
+
+    def test_claude_token_mixin_adds_bearer_injection_for_anthropic(self):
+        creds = capabilities("claude-token", "credential@1")
+        self.assertEqual(len(creds), 1)
+        config = creds[0]["config"]
+        self.assertEqual(config["service"], "anthropic")
+        # Routing-only: no name or proxyManaged, which would clash with Docker's mixin.
+        self.assertEqual(set(config["apiKey"]), {"inject"})
+        self.assertEqual(config["apiKey"]["inject"], [{"domain": "api.anthropic.com", "header": "Authorization", "format": "Bearer %s"}])
+        self.assertIn("claude >= 2.0.0", descriptor("claude-token")["requires"])
+        hook = hooks("claude-token", "install")
+        self.assertEqual(len(hook), 1)
+        self.assertIn("claude-token.sh", command_text(hook[0]))
+        self.assertEqual(str(hook[0]["user"]), "1000")
+
     def test_rtk_codex_hook_runs_rtk_init(self):
         self.fake("rtk", 'echo "rtk $*" >> "$HOME/calls"')
         self.run_script("rtk-codex-hook.sh")
@@ -758,7 +798,7 @@ class Launcher(unittest.TestCase):
         listed = [line.split("\t")[0] for line in (ROOT / "plugins.tsv").read_text().splitlines()[1:]]
         self.assertEqual(listed, plugins)
         # Every selectable mixin is a kit; rtkplus stands for the per-agent pair.
-        expected = {d.name for d in kit_dirs()} - {"boxen", "workspace", "rtkplus-claude", "rtkplus-codex"} | {"rtkplus"}
+        expected = {d.name for d in kit_dirs()} - {"boxen", "workspace", "claude-token", "rtkplus-claude", "rtkplus-codex"} | {"rtkplus"}
         self.assertEqual(set(kits), expected)
 
     def test_plugin_descriptions_promise_nothing_the_mixins_lack(self):

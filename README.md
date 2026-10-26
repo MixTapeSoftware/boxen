@@ -215,6 +215,7 @@ workload, each a single YAML file that runs scripts the image already has:
 | `v3/gh-auth` | A proxy-managed GitHub token, and Git's credential helper through gh |
 | `v3/1pass` | 1Password's hosts for the baked op CLI |
 | `v3/rtkplus-claude`, `v3/rtkplus-codex` | RTK's hook for that agent |
+| `v3/claude-token` | Per-sandbox Claude subscription token: Bearer injection and the hook that points Claude Code at it; always on Claude sandboxes |
 
 Setup the agent needs on its first command runs as an install hook, once, at
 create: removing local sudo, the environment line, the workspace, gh's
@@ -287,22 +288,38 @@ No credential comes from the host by default. Each sandbox gets its own.
 
 ### Agent sign-in
 
-Claude Code and Codex sandboxes each sign in to your subscription separately,
-inside the sandbox. `create` offers the sign-in when it finishes, and so does
-entering a sandbox that is not signed in (`bxn NAME`, `bxn shell NAME`,
-`bxn run NAME`). Claude Code uses `claude auth login`; Codex uses
-`codex login --device-auth`, a code you enter in your browser, since its usual
-`localhost` callback cannot reach a sandbox. Answer n to skip; the offer comes
-back next time.
+**Claude Code** takes a subscription token per sandbox, so different sandboxes
+can bill different accounts. Make one with `claude setup-token` on a host
+signed in as the account the sandbox should use, then give it to the sandbox:
+`create` asks for it, or `bxn auth claude NAME` stores it, before or after the
+sandbox exists. sbx keeps the token on the host, scoped to that sandbox, and
+its proxy swaps it into each request; the sandbox only ever holds a
+placeholder. Boxen's `claude-token` mixin makes that work for a subscription
+token: Docker's mixin would send the placeholder as an API key, which Anthropic
+refuses for one, so the hook drops that and hands it to Claude Code as
+`CLAUDE_CODE_OAUTH_TOKEN`, and the mixin has the proxy swap it in the Bearer
+header too.
 
-The login lives inside the sandbox, where the agent can read it. It survives
-a stop and resume and goes away with the sandbox.
+Never run `/login` inside a sandbox: sbx's proxy captures that sign-in as a
+host-wide `anthropic` login, which then overrides every sandbox's own token
+(docker/sbx-releases#144). The limits of a setup token, from the same issue:
+Claude Code prints "Remote managed settings failed to load (401)" at startup,
+harmlessly, because such tokens cannot read an organization's managed
+settings, so those settings do not apply inside the sandbox; `/usage` may not
+show subscription limits; and some organizations do not allow creating one.
+
+**Codex** signs in inside the sandbox with `codex login --device-auth`, a
+code you enter in your browser, since its usual `localhost` callback cannot
+reach a sandbox. `create` offers it when it finishes, and so does entering a
+sandbox that is not signed in (`bxn NAME`, `bxn shell NAME`, `bxn run NAME`).
+Answer n to skip; the offer comes back next time. The login lives inside the
+sandbox, survives a stop and resume, and goes away with the sandbox.
 
 Do not store `anthropic` or `openai` secrets host-wide with `sbx secret set`:
-Docker's Claude and Codex mixins then use that one credential in every
-sandbox instead of the sandbox's own sign-in. `create` and `doctor` warn when
-one exists; remove it with `sbx secret rm anthropic` (or `openai`). Grok uses
-an xAI API key; `bxn env NAME XAI_API_KEY` stores one for that sandbox only.
+the proxy swaps a host-wide one in regardless, overriding each sandbox's own
+token or sign-in. `create` and `doctor` warn when one exists; remove it with
+`sbx secret rm anthropic` (or `openai`). Grok uses an xAI API key;
+`bxn env NAME XAI_API_KEY` stores one for that sandbox only.
 
 ### Plugin keys
 
@@ -318,6 +335,7 @@ provisioning. Leave any blank to skip it.
 Without a terminal, or after skipping, add them later:
 
 ~~~bash
+bxn auth claude my-project                    # paste a token from claude setup-token, or pipe one in
 bxn auth github my-project                    # paste a fine-grained token, or pipe one in
 op read 'op://Work/GitHub/fine-grained-token' | bxn auth github my-project
 bxn auth github my-project --from-gh          # the host gh token, with every scope gh has

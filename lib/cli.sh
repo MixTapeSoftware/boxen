@@ -120,6 +120,8 @@ bxn plugins                                  List the plugins and what they inst
 bxn validate                                 Validate the v3 kits using the installed sbx
 bxn doctor                                   Check prerequisites
 
+bxn auth claude NAME                         Store a Claude subscription token for this
+                                             sandbox (from claude setup-token; stdin or prompt)
 bxn auth github NAME [--from-gh]             Store a fine-grained token (stdin or
                                              prompt), or source the host gh token
 bxn auth 1password NAME SERVICE OP_REFERENCE
@@ -364,13 +366,15 @@ host_wide_secret() {
   listing="$(sbx secret ls --global --service "$1" --json 2>/dev/null)" || return 1
   [[ -n "$listing" && "$(printf '%s' "$listing" | tr -d ' \t\n')" != *'"secrets":[]'* ]]
 }
-# Docker's Claude and Codex workloads prefer a host-wide secret, which then
-# takes the place of each sandbox's own subscription sign-in.
+# A host-wide secret for the agent's service wins over the sandbox's own: the
+# proxy swaps it in regardless (docker/sbx-releases#144), so a Claude sandbox
+# bills that account whatever token it was given, and a Codex sandbox uses it
+# instead of its own sign-in. Claude Code's /login inside a sandbox creates one.
 warn_host_wide_agent_secret() {
   local service
   case "$1" in claude) service=anthropic ;; codex) service=openai ;; *) return 0 ;; esac
   if host_wide_secret "$service"; then
-    warn "sbx has a host-wide $service secret, so this sandbox uses it instead of its own sign-in. Remove it with: sbx secret rm $service"
+    warn "sbx has a host-wide $service secret, which overrides every sandbox's own token or sign-in. Remove it with: sbx secret rm $service"
   fi
 }
 # Run one of Boxen's guest scripts by name. The image keeps them under
@@ -390,11 +394,17 @@ guest_script() {
 # Offer the agent's subscription sign-in on the way in, when the sandbox needs
 # one. Terminal only; anything unexpected skips the offer instead of blocking.
 offer_agent_login() {
-  local status=0 answer
+  local status=0 answer agent
   [[ -t 0 && -t 1 ]] || return 0
   GUEST_TTY=()
-  guest_script "$1" agent-login.sh status </dev/null >/dev/null 2>&1 || status=$?
+  # status prints the agent's name: Claude's token comes from the host, not a sign-in.
+  agent="$(guest_script "$1" agent-login.sh status </dev/null 2>/dev/null)" || status=$?
   [[ "$status" == 10 ]] || return 0
+  if [[ "$agent" == claude ]]; then
+    printf '%s has no Claude token. On a host signed in as the account to bill: claude setup-token, then\n' "$1"
+    printf '  bxn auth claude %s\n' "$1"
+    return 0
+  fi
   read_value answer "$1's agent is not signed in. Sign in to your subscription now? [Y/n] "
   case "$answer" in n|N|no|No|NO) return 0 ;; esac
   GUEST_TTY=(-it)
@@ -414,6 +424,20 @@ write_guest_env() {
     mv "$file.tmp" "$file"' sh "$2"
 }
 
+# Whether sbx holds a secret for SERVICE scoped to sandbox NAME.
+sandbox_secret() {
+  local listing
+  listing="$(sbx secret ls --sandbox "$1" --service "$2" --json 2>/dev/null)" || return 1
+  [[ -n "$listing" && "$(printf '%s' "$listing" | tr -d ' \t\n')" != *'"secrets":[]'* ]]
+}
+# Store a Claude subscription token for sandbox NAME. Whitespace is stripped:
+# a trailing newline from a pasted or piped token makes Anthropic answer 401.
+# --force: sbx 0.49 asks before replacing a stored secret, and only a
+# terminal could answer.
+store_claude_token() {
+  printf '%s' "$2" | tr -d '[:space:]' | sbx secret set --sandbox "$1" anthropic --force
+}
+
 # --- Commands ----------------------------------------------------------------
 
 create() {
@@ -424,7 +448,7 @@ create() {
   # shared skills store (sbx's own default is a read-only link).
   local skills=off mounts="" tui=1 chose_plugins=0 open_network=0
   local gh_stdin=0
-  local gh_token="" op_token="" ts_key="" ts_port="" port_re='^[0-9]+$'
+  local gh_token="" op_token="" ts_key="" ts_port="" claude_token="" port_re='^[0-9]+$'
   local selected="" item kit workload identity value home service
   local kit_args=() command=() items=()
   while [[ $# -gt 0 ]]; do
@@ -544,6 +568,8 @@ create() {
   # seed; a shell box is the workload alone.
   kit_args=()
   if [[ "$agent" != shell ]]; then kit_args+=(--kit "$(mixin_ref "$agent")"); fi
+  # Claude signs in with a per-sandbox subscription token the proxy holds.
+  if [[ "$agent" == claude ]]; then kit_args+=(--kit "$PROJECT_DIR/v3/claude-token"); fi
   # Copied and empty workspaces get the agent-owned /workspace link; mounts
   # bring their own directory.
   case "$mode" in copy|none) kit_args+=(--kit "$PROJECT_DIR/v3/workspace") ;; esac
@@ -597,6 +623,12 @@ create() {
   # Ask for the selected plugins' keys before the long provisioning run. Each
   # stays with this sandbox; blank skips.
   if [[ -t 0 && -t 1 ]]; then
+    if [[ "$agent" == claude ]]; then
+      printf '\nClaude: a subscription token from `claude setup-token`, run on a host signed in as the\n'
+      printf 'account this sandbox should bill. sbx keeps it for this sandbox only; the sandbox sees a\n'
+      printf 'placeholder. Blank to add one later with: bxn auth claude %s\n' "$name"
+      read_secret claude_token 'Claude token (blank to skip): '
+    fi
     if has_plugin gh-auth && [[ "$gh_stdin" == 0 ]]; then
       printf '\nGitHub: a fine-grained token (Contents read/write, Metadata read-only) from\n'
       printf '  https://github.com/settings/personal-access-tokens/new\n'
@@ -623,6 +655,12 @@ create() {
   fi
   # Echo the choice: a mis-keyed toggle in the selector is otherwise silent.
   log "Agent: $agent; plugins: ${selected:-none}"
+  # The Claude token goes in first: the kits decide at create whether one is
+  # bound, and a sandbox-scoped secret may be stored before its sandbox exists.
+  if [[ -n "$claude_token" ]]; then
+    store_claude_token "$name" "$claude_token" || die "Storing the Claude token failed; nothing was created."
+    claude_token=""
+  fi
   # sbx create refuses duplicate names. Never remove or recreate an existing sandbox.
   sbx "${command[@]}"
   register "$name"
@@ -658,6 +696,10 @@ create() {
     printf 'Add a 1Password token later: bxn env %s OP_SERVICE_ACCOUNT_TOKEN\n' "$name"
   fi
   gh_token="" op_token=""
+  if [[ "$agent" == claude ]] && ! sandbox_secret "$name" anthropic; then
+    printf 'Claude has no token yet. On a host signed in as the account to bill: claude setup-token, then\n'
+    printf '  bxn auth claude %s\n' "$name"
+  fi
   if [[ -n "$ts_key" ]]; then
     if printf '%s\n' "$ts_key" | as_root "$name" -i /usr/local/bin/boxen-tailscale join --auth-key-stdin; then
       if [[ -n "$ts_port" ]]; then
@@ -910,6 +952,28 @@ auth() {
   [[ $# -ge 2 ]] || die 'auth requires a provider and sandbox name'
   local provider="$1" name="$2" token gh_path
   shift 2
+  if [[ "$provider" == claude ]]; then
+    # Allowed before the sandbox exists: the token must be bound at create.
+    valid_name "$name"; need_sbx
+    [[ $# == 0 ]] || die 'Use: auth claude NAME'
+    if [[ -t 0 ]]; then
+      printf 'On a host signed in as the account this sandbox should bill, run: claude setup-token\n' >&2
+      read_secret token 'Claude token: '
+    else
+      IFS= read -r token || true
+    fi
+    [[ -n "$token" ]] || die 'Claude token required'
+    store_claude_token "$name" "$token"
+    token=""
+    if sandbox_exists "$name"; then
+      # Point Claude Code at the placeholder now; at create the hook does this itself.
+      guest_script "$name" claude-token.sh --force || warn "Could not update Claude's settings in $name; recreate it to use the token."
+      log "Claude in $name now bills that token's account."
+    else
+      log "Stored for $name; it will be used when $name is created."
+    fi
+    return 0
+  fi
   need_sandbox "$name"
   case "$provider" in
     github)
@@ -1014,7 +1078,7 @@ cmd_doctor() {
   fi
   for service in anthropic openai; do
     if host_wide_secret "$service"; then
-      printf 'Note: a host-wide %s secret replaces each sandbox'"'"'s own sign-in (sbx secret rm %s).\n' "$service" "$service"
+      printf 'Warning: a host-wide %s secret overrides every sandbox'"'"'s own token or sign-in (sbx secret rm %s).\n' "$service" "$service"
     fi
   done
   sbx ls

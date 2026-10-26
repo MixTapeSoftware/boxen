@@ -29,6 +29,9 @@ class AgentLogin(unittest.TestCase):
         result = subprocess.run(["bash", str(self.script), action], env=env, capture_output=True, text=True, timeout=10)
         calls = self.log.read_text().splitlines() if self.log.exists() else []
         self.log.unlink(missing_ok=True)
+        if action == "status":
+            # The host reads the agent's name from status: Claude gets a host-side hint, not an offer.
+            self.assertEqual(result.stdout, agent + "\n")
         return result.returncode, calls
 
     def test_status_asks_each_agent(self):
@@ -39,7 +42,10 @@ class AgentLogin(unittest.TestCase):
         self.assertEqual(self.run_script("grok", "status"), (0, []))
 
     def test_login_uses_browserless_subscription_sign_in(self):
-        self.assertEqual(self.run_script("claude", "login"), (0, ["claude auth login"]))
+        # Claude's token is bound on the host (bxn auth claude): a /login inside
+        # the sandbox would be captured by the proxy as a host-wide login.
+        code, calls = self.run_script("claude", "login")
+        self.assertEqual((code, calls), (1, []))
         self.assertEqual(self.run_script("codex", "login"), (0, ["codex login --device-auth"]))
         self.assertEqual(self.run_script("shell", "login")[0], 1)
 
