@@ -495,7 +495,9 @@ in check:
 3. **Use `--tailscale` only on sandboxes that need previews.** The mixin
    allows `*.tailscale.com`, which every tailnet shares, so an agent on such a
    sandbox could join a tailnet of its own and move data through it. Boxen
-   cannot prevent that; the sbx network policy is the only control.
+   cannot prevent that; the sbx network policy is the only control. It also
+   allows `acme-v02.api.letsencrypt.org`, which `tailscale serve` needs to
+   fetch the node's HTTPS certificate.
 
 The node has no operator, so the agent cannot change its settings; `join`,
 `serve` and `status` run as root.
