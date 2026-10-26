@@ -298,11 +298,16 @@ back next time.
 The login lives inside the sandbox, where the agent can read it. It survives
 a stop and resume and goes away with the sandbox.
 
-Do not store `anthropic` or `openai` secrets host-wide with `sbx secret set`:
-Docker's Claude and Codex mixins then use that one credential in every
-sandbox instead of the sandbox's own sign-in. `create` and `doctor` warn when
-one exists; remove it with `sbx secret rm anthropic` (or `openai`). Grok uses
-an xAI API key; `bxn env NAME XAI_API_KEY` stores one for that sandbox only.
+Do not store `anthropic` or `openai` secrets host-wide with `sbx secret set`.
+With one stored, the sandbox's own sign-in cannot work: sbx asks whether to
+bind the host credential, and if you decline, the sandbox proxy still masks
+the token the sign-in receives, so the agent is left with a placeholder and
+fails with 401 errors (seen with Claude Code 2.1.267 and 2.1.310). Either
+accept the binding, which shares that one credential with every sandbox, or
+remove it with `sbx secret rm anthropic` (or `openai`). `create` and `doctor`
+warn when one exists, and the sign-in offer is withheld until it is gone.
+Grok uses an xAI API key; `bxn env NAME XAI_API_KEY` stores one for that
+sandbox only.
 
 ### Plugin keys
 

@@ -361,14 +361,30 @@ host_wide_secret() {
   listing="$(sbx secret ls --global --service "$1" --json 2>/dev/null)" || return 1
   [[ -n "$listing" && "$(printf '%s' "$listing" | tr -d ' \t\n')" != *'"secrets":[]'* ]]
 }
-# Docker's Claude and Codex workloads prefer a host-wide secret, which then
-# takes the place of each sandbox's own subscription sign-in.
+# The sbx service behind AGENT's subscription sign-in, when it has one.
+agent_service() {
+  case "$1" in claude) echo anthropic ;; codex) echo openai ;; *) return 1 ;; esac
+}
+# Prints the service name when sbx holds a host-wide secret for AGENT.
+host_wide_agent_secret() {
+  local service
+  service="$(agent_service "$1")" || return 1
+  host_wide_secret "$service" || return 1
+  printf '%s\n' "$service"
+}
+# Why a host-wide secret stops the sandbox's own sign-in, to stderr. Seen on
+# 2026-10-26 with sbx and Docker's Claude mixin: when the binding is declined
+# the proxy still masks the token the sign-in receives, so Claude Code is
+# left holding a placeholder nobody swaps back, and fails with 401s.
+host_wide_secret_advice() {
+  printf '  The sandbox proxy masks the sign-in token even when the binding is declined, leaving a placeholder the agent cannot use.\n' >&2
+  printf '  Accept the binding so every sandbox shares that credential, or remove it: sbx secret rm %s\n' "$1" >&2
+}
 warn_host_wide_agent_secret() {
   local service
-  case "$1" in claude) service=anthropic ;; codex) service=openai ;; *) return 0 ;; esac
-  if host_wide_secret "$service"; then
-    warn "sbx has a host-wide $service secret, so this sandbox uses it instead of its own sign-in. Remove it with: sbx secret rm $service"
-  fi
+  service="$(host_wide_agent_secret "$1")" || return 0
+  warn "sbx has a host-wide $service secret, so $1's own sign-in inside the sandbox cannot work:"
+  host_wide_secret_advice "$service"
 }
 # Run one of Boxen's guest scripts by name. The image keeps them under
 # /usr/local/share/boxen/; a sandbox made before v3 has its own copies under
@@ -387,11 +403,14 @@ guest_script() {
 # Offer the agent's subscription sign-in on the way in, when the sandbox needs
 # one. Terminal only; anything unexpected skips the offer instead of blocking.
 offer_agent_login() {
-  local status=0 answer
+  local status=0 answer agent
   [[ -t 0 && -t 1 ]] || return 0
   GUEST_TTY=()
-  guest_script "$1" agent-login.sh status </dev/null >/dev/null 2>&1 || status=$?
+  # status prints the agent's name, so the host knows which service to check.
+  agent="$(guest_script "$1" agent-login.sh status </dev/null 2>/dev/null)" || status=$?
   [[ "$status" == 10 ]] || return 0
+  # That sign-in cannot succeed beside a host-wide secret; say why instead.
+  if host_wide_agent_secret "$agent" >/dev/null; then warn_host_wide_agent_secret "$agent"; return 0; fi
   read_value answer "$1's agent is not signed in. Sign in to your subscription now? [Y/n] "
   case "$answer" in n|N|no|No|NO) return 0 ;; esac
   GUEST_TTY=(-it)
@@ -976,7 +995,7 @@ version_ge() {
 }
 
 cmd_doctor() {
-  local version service failed=0
+  local version agent service failed=0
   [[ $# == 0 ]] || die 'Usage: doctor'
   need_sbx
   version="$(sbx version 2>/dev/null | sed -n 's/.*version:\{0,1\} v\{0,1\}\([0-9][0-9.]*\).*/\1/p' | head -1)"
@@ -999,10 +1018,10 @@ cmd_doctor() {
   else
     printf 'GitHub binding: missing (run ./install; without it gh-auth sandboxes get no token)\n'
   fi
-  for service in anthropic openai; do
-    if host_wide_secret "$service"; then
-      printf 'Note: a host-wide %s secret replaces each sandbox'"'"'s own sign-in (sbx secret rm %s).\n' "$service" "$service"
-    fi
+  for agent in claude codex; do
+    service="$(host_wide_agent_secret "$agent")" || continue
+    printf 'Warning: sbx has a host-wide %s secret, so %s'"'"'s own sign-in inside a sandbox cannot work:\n' "$service" "$agent"
+    host_wide_secret_advice "$service" 2>&1
   done
   sbx ls
   [[ "$failed" == 0 ]] || exit 1
