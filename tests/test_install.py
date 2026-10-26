@@ -74,9 +74,9 @@ class Install(unittest.TestCase):
 
     def test_links_the_launcher_and_skips_chadmux_unless_chosen(self):
         result = self.install()
-        link = self.home / ".local/bin/boxen"
+        link = self.home / ".local/bin/bxn"
         self.assertTrue(link.is_symlink())
-        self.assertEqual(link.resolve(), (ROOT / "boxen").resolve())
+        self.assertEqual(link.resolve(), (ROOT / "bxn").resolve())
         self.assertIn("./install --chadmux", result.stdout)
         self.assertFalse((self.home / ".tmux.conf").exists())
         self.install()
@@ -127,8 +127,23 @@ class Install(unittest.TestCase):
         self.assertIn("without a github binding", result.stderr)
         self.assertIn("domains: [api.github.com, github.com, gist.github.com]", result.stdout)
 
+    def test_drops_the_old_boxen_link_into_this_checkout(self):
+        bin_dir = self.home / ".local/bin"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "boxen").symlink_to(ROOT / "boxen")
+        self.install("--no-chadmux")
+        self.assertFalse((bin_dir / "boxen").is_symlink())
+        self.assertTrue((bin_dir / "bxn").is_symlink())
+
+    def test_keeps_a_boxen_that_is_not_this_launcher(self):
+        bin_dir = self.home / ".local/bin"
+        bin_dir.mkdir(parents=True)
+        (bin_dir / "boxen").symlink_to(self.fakes / "git")
+        self.install("--no-chadmux")
+        self.assertEqual((bin_dir / "boxen").resolve(), (self.fakes / "git").resolve())
+
     def test_keeps_a_file_in_the_way(self):
-        target = self.home / ".local/bin/boxen"
+        target = self.home / ".local/bin/bxn"
         target.parent.mkdir(parents=True)
         target.write_text("mine")
         self.install("--no-chadmux")

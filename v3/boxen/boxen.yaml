@@ -81,4 +81,4 @@ capabilities:
       filename: AGENTS.md
       content: |
         In a Boxen sandbox sudo is not available; when a task needs root, ask
-        the user to run it from a session opened with boxen shell --with-sudo.
+        the user to run it from a session opened with bxn shell --with-sudo.

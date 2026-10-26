@@ -149,7 +149,7 @@ class CLI(unittest.TestCase):
 
     def cli(self, *args, stdin="", ok=True, cwd=None, launcher=None):
         result = subprocess.run(
-            [os.environ.get("TEST_BASH", "bash"), str(launcher or ROOT / "boxen"), *args],
+            [os.environ.get("TEST_BASH", "bash"), str(launcher or ROOT / "bxn"), *args],
             env=self.env, input=stdin, text=True, capture_output=True, timeout=20,
             cwd=cwd or self.project,
         )
@@ -333,7 +333,7 @@ class CLI(unittest.TestCase):
 
     def test_launcher_shares_the_pins_with_the_gates(self):
         self.assertNotIn("sbx-kit-", (ROOT / "lib/cli.sh").read_text())
-        self.assertIn('source "$PROJECT_DIR/lib/pins.sh"', (ROOT / "boxen").read_text())
+        self.assertIn('source "$PROJECT_DIR/lib/pins.sh"', (ROOT / "bxn").read_text())
 
     def test_rtk_mixin_follows_the_agent(self):
         self.cli("create", "rtk-claude", "--no-copy", "--claude", "--plugins", "rtkplus")
@@ -419,7 +419,7 @@ class CLI(unittest.TestCase):
         if pid == 0:
             os.chdir(self.project)
             bash = os.environ.get("TEST_BASH", "bash")
-            os.execvpe(bash, [bash, str(ROOT / "boxen"), *args], self.env)
+            os.execvpe(bash, [bash, str(ROOT / "bxn"), *args], self.env)
         output = b""
         seen = 0
 
@@ -524,9 +524,9 @@ class CLI(unittest.TestCase):
 
     def test_without_a_terminal_keys_are_left_for_later(self):
         result = self.cli("create", "box", "--no-copy", "--plugins", "gh-auth,1pass,tailscale")
-        self.assertIn("boxen auth github box", result.stdout)
-        self.assertIn("boxen env box OP_SERVICE_ACCOUNT_TOKEN", result.stdout)
-        self.assertIn("boxen tailscale join box", result.stdout)
+        self.assertIn("bxn auth github box", result.stdout)
+        self.assertIn("bxn env box OP_SERVICE_ACCOUNT_TOKEN", result.stdout)
+        self.assertIn("bxn tailscale join box", result.stdout)
         self.assertFalse(any(c["args"][:2] == ["secret", "set"] or "--auth-key-stdin" in c["args"] for c in self.calls()))
 
     def test_sign_in_is_offered_on_the_way_in(self):
@@ -600,7 +600,7 @@ class CLI(unittest.TestCase):
         result = self.cli("create", "half", "--no-copy", ok=False)
         self.assertIn("was created, but starting it failed", result.stderr)
         # Boxen's own commands: sbx rm would leave the name registered.
-        self.assertIn("boxen delete half", result.stderr)
+        self.assertIn("bxn delete half", result.stderr)
         self.assertNotIn("sbx rm", result.stderr)
         self.assertFalse(any(c["args"][0] == "rm" for c in self.calls()))
 
@@ -642,10 +642,10 @@ class CLI(unittest.TestCase):
 
     def test_create_ends_with_how_to_get_in(self):
         lines = self.cli("create", "boxen-claude-1", "--no-copy", "--agent", "claude").stdout.rstrip().splitlines()
-        self.assertEqual(lines[-4:], ["To open a shell in the sandbox, run:", "  » boxen boxen-claude-1",
-                                      "Start the agent with: boxen run boxen-claude-1",
-                                      "Check the plugins with: boxen check boxen-claude-1"])
-        self.assertNotIn("boxen run", self.cli("create", "plain", "--no-copy").stdout)
+        self.assertEqual(lines[-4:], ["To open a shell in the sandbox, run:", "  » bxn boxen-claude-1",
+                                      "Start the agent with: bxn run boxen-claude-1",
+                                      "Check the plugins with: bxn check boxen-claude-1"])
+        self.assertNotIn("bxn run", self.cli("create", "plain", "--no-copy").stdout)
 
     def test_create_registers_the_sandbox(self):
         self.cli("create", "box", "--no-copy")
@@ -883,9 +883,9 @@ class CLI(unittest.TestCase):
     # --- host housekeeping -----------------------------------------------------
 
     def test_symlinked_launcher_finds_its_files(self):
-        link = self.directory / "bin" / "boxen"
-        link.symlink_to(ROOT / "boxen")
-        self.assertIn("boxen create", self.cli("--help", launcher=link).stdout)
+        link = self.directory / "bin" / "bxn"
+        link.symlink_to(ROOT / "bxn")
+        self.assertIn("bxn create", self.cli("--help", launcher=link).stdout)
 
     def test_default_sbx_name_resolves_binary_without_recursion(self):
         self.env["SBX_BIN"] = "sbx"

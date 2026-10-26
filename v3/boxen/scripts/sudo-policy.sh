@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Runs as root. Docker's images give agent standing passwordless sudo.
-# boxen gives none: boxen shell --with-sudo adds the _sudo group to a
+# boxen gives none: bxn shell --with-sudo adds the _sudo group to a
 # single session through boxen-sudo-session. Runs as a root install hook at
 # create, so the image itself ships Docker's groups and sudoers untouched.
 set -euo pipefail

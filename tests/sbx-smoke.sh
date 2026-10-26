@@ -5,7 +5,7 @@ set -euo pipefail
 project="$(cd "$(dirname "$0")/.." && pwd)"
 name="$1"
 sbx_bin="${SBX_BIN:-sbx}"
-"$project/boxen" check "$name"
+"$project/bxn" check "$name"
 "$sbx_bin" exec "$name" docker info --format '{{.ServerVersion}}'
 "$sbx_bin" exec --user root "$name" bash -c \
   'printf "%s\n" persisted > /var/lib/tailscale/.boxen-smoke'
@@ -20,5 +20,5 @@ for ((attempt=0; attempt<30; attempt++)); do
 done
 "$sbx_bin" exec --user root "$name" tailscale status --json >/dev/null
 "$sbx_bin" exec --user root "$name" bash -c 'test "$(pgrep -cx tailscaled)" = 1'
-"$project/boxen" check "$name"
+"$project/bxn" check "$name"
 printf 'PASS sandbox restart, Docker daemon, and Tailscale volume persistence\n'

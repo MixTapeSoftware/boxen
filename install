@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Host setup: link boxen into ~/.local/bin and, when chosen, install
+# Host setup: link bxn into ~/.local/bin and, when chosen, install
 # Chadmux, Chad's opinionated tmux config. Bash 3.2 compatible.
 set -euo pipefail
 PROJECT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -26,9 +26,9 @@ done
 source "$PROJECT_DIR/lib/chadmux.sh"
 
 bin_dir="$HOME/.local/bin"
-target="$bin_dir/boxen"
+target="$bin_dir/bxn"
 mkdir -p "$bin_dir"
-chmod +x "$PROJECT_DIR/boxen"
+chmod +x "$PROJECT_DIR/bxn"
 if [[ -L "$target" ]]; then
   rm "$target"
 elif [[ -e "$target" ]]; then
@@ -37,14 +37,21 @@ elif [[ -e "$target" ]]; then
   if [[ "$reply" =~ ^[Yy]$ ]]; then
     rm "$target"
   else
-    warn "Keeping $target; boxen was not linked"
+    warn "Keeping $target; bxn was not linked"
     target=""
   fi
 fi
 if [[ -n "$target" ]]; then
   # The launcher resolves the link, so lib/ and v3/ stay in this checkout.
-  ln -s "$PROJECT_DIR/boxen" "$target"
-  log "Linked $target -> $PROJECT_DIR/boxen"
+  ln -s "$PROJECT_DIR/bxn" "$target"
+  log "Linked $target -> $PROJECT_DIR/bxn"
+fi
+# The launcher was called boxen; a link by that name into this checkout now
+# dangles, so drop it. A boxen that is something else is left alone.
+old="$bin_dir/boxen"
+if [[ -L "$old" && "$(readlink "$old")" == "$PROJECT_DIR/boxen" ]]; then
+  rm "$old"
+  log "Removed the old $old link"
 fi
 
 # Chadmux is off unless chosen, and an existing host tmux config is always
@@ -80,7 +87,7 @@ case "$state" in
       if [[ "$reply" =~ ^[Yy]$ ]]; then CHADMUX=yes; fi
     fi
     if [[ "$CHADMUX" == yes ]]; then
-      (chadmux_install) || warn 'Chadmux install failed; boxen is still installed'
+      (chadmux_install) || warn 'Chadmux install failed; bxn is still installed'
     elif [[ "$CHADMUX" == ask ]]; then
       log 'Chadmux not installed; run ./install --chadmux to add it'
     fi ;;
@@ -139,4 +146,4 @@ echo '  {"action": "accept", "src": ["group:admin"], "dst": ["*:*"]}'
 echo 'What matters either way: tag:boxen is in tagOwners, no rule has tag:boxen as'
 echo 'src, and no funnel nodeAttrs entry names it. Read up before editing:'
 echo 'https://tailscale.com/kb/1018/acls and the README, "Tailscale and previews".'
-log 'Done. Next: boxen doctor'
+log 'Done. Next: bxn doctor'

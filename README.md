@@ -3,7 +3,7 @@
 Development sandboxes for coding agents on **Docker Sandboxes**, with a shell
 by default and optional Claude, Codex or Grok. Docker owns the VM, network
 policy, credential proxy and private Docker Engine. This
-project supplies the `boxen` launcher, an image with every development tool baked
+project supplies the `bxn` launcher, an image with every development tool baked
 in, a few option kits, shell configuration and Tailscale integration.
 
 Requires SBX **0.47.0 or newer**, Docker sign-in, Docker itself, running (sbx
@@ -31,21 +31,21 @@ starts from the same setup instead of being configured by hand.
 
 ~~~bash
 sbx login
-./install                 # Links boxen into ~/.local/bin; offers Chadmux
-boxen doctor
+./install                 # Links bxn into ~/.local/bin; offers Chadmux
+bxn doctor
 
 # Choose an agent and kits, then copy the current directory into a new sandbox.
 cd /path/to/project
-boxen create my-project
-boxen my-project     # Open a shell
+bxn create my-project
+bxn my-project     # Open a shell
 
 # Copy another directory, or start empty.
-boxen create my-project -p /path/to/project
-boxen create scratch --no-copy
+bxn create my-project -p /path/to/project
+bxn create scratch --no-copy
 
-# An agent with the same tools; boxen run starts it.
-boxen create codex-project --agent codex
-boxen run codex-project
+# An agent with the same tools; bxn run starts it.
+bxn create codex-project --agent codex
+bxn run codex-project
 ~~~
 
 The first `create` builds the tools image, which takes 15 to 30 minutes (Chrome
@@ -87,9 +87,9 @@ credential. Configure credential sources separately.
 | `status [--once]`, `ls` | | `sbx tui`, or the sandbox list once |
 
 `auth`, `tailscale`, `check`, `validate` and `doctor` are described below, and
-`boxen --help` lists every option.
+`bxn --help` lists every option.
 
-`boxen status` opens sbx's dashboard, which `sbx tui` (or plain `sbx`) also
+`bxn status` opens sbx's dashboard, which `sbx tui` (or plain `sbx`) also
 opens. It shows each sandbox's status, CPU and memory, with keys to start or
 stop one (`s`), attach to its agent (Enter), open a shell (`x`) or remove it
 (`r`). Tab switches to the network panel, which logs outbound connections and
@@ -107,11 +107,11 @@ some: `--agent NAME`, `--claude`, `--codex`, `--grok`, `--tailscale`,
 runs:
 
 ~~~bash
-boxen create web --tailscale --supabase-serve --gh-token --no-tui
-boxen create small --plugins gh-auth,rtkplus --claude
-boxen create everything --plugins all
-boxen create base --plugins none
-boxen create preview --dry-run
+bxn create web --tailscale --supabase-serve --gh-token --no-tui
+bxn create small --plugins gh-auth,rtkplus --claude
+bxn create everything --plugins all
+bxn create base --plugins none
+bxn create preview --dry-run
 ~~~
 
 Every tool is in every sandbox, so tools are not a choice: see [Kits](#kits).
@@ -176,7 +176,7 @@ credentials, agent login files, SSH private keys, or your host home directory.
 
 Docker's images give the agent user standing passwordless sudo. On a local
 sandbox, boxen removes it when the sandbox is created. For root, open a session
-with `./boxen shell --with-sudo NAME`: it adds a `_sudo` group to that session
+with `./bxn shell --with-sudo NAME`: it adds a `_sudo` group to that session
 only. Agents are told to ask you instead of using sudo.
 
 ## Kits
@@ -268,7 +268,7 @@ the cloud pull private kits, or shares templates across an organization.
 
 ## Host setup and Chadmux
 
-`./install` links `boxen` into `~/.local/bin`; the launcher follows the link
+`./install` links `bxn` into `~/.local/bin`; the launcher follows the link
 back to this checkout's `v3/` kits. It then offers Chadmux, Chad's opinionated tmux
 config, with TPM plugins for the Dracula theme, tmux-yank and
 vim-tmux-navigator. `./install --chadmux` installs it without asking, and
@@ -289,8 +289,8 @@ No credential comes from the host by default. Each sandbox gets its own.
 
 Claude Code and Codex sandboxes each sign in to your subscription separately,
 inside the sandbox. `create` offers the sign-in when it finishes, and so does
-entering a sandbox that is not signed in (`boxen NAME`, `boxen shell NAME`,
-`boxen run NAME`). Claude Code uses `claude auth login`; Codex uses
+entering a sandbox that is not signed in (`bxn NAME`, `bxn shell NAME`,
+`bxn run NAME`). Claude Code uses `claude auth login`; Codex uses
 `codex login --device-auth`, a code you enter in your browser, since its usual
 `localhost` callback cannot reach a sandbox. Answer n to skip; the offer comes
 back next time.
@@ -302,7 +302,7 @@ Do not store `anthropic` or `openai` secrets host-wide with `sbx secret set`:
 Docker's Claude and Codex mixins then use that one credential in every
 sandbox instead of the sandbox's own sign-in. `create` and `doctor` warn when
 one exists; remove it with `sbx secret rm anthropic` (or `openai`). Grok uses
-an xAI API key; `boxen env NAME XAI_API_KEY` stores one for that sandbox only.
+an xAI API key; `bxn env NAME XAI_API_KEY` stores one for that sandbox only.
 
 ### Plugin keys
 
@@ -318,12 +318,12 @@ provisioning. Leave any blank to skip it.
 Without a terminal, or after skipping, add them later:
 
 ~~~bash
-boxen auth github my-project                    # paste a fine-grained token, or pipe one in
-op read 'op://Work/GitHub/fine-grained-token' | boxen auth github my-project
-boxen auth github my-project --from-gh          # the host gh token, with every scope gh has
-boxen env my-project OP_SERVICE_ACCOUNT_TOKEN
-boxen tailscale join my-project
-boxen auth 1password my-project github 'op://Work/GitHub/token'  # host op:// reference
+bxn auth github my-project                    # paste a fine-grained token, or pipe one in
+op read 'op://Work/GitHub/fine-grained-token' | bxn auth github my-project
+bxn auth github my-project --from-gh          # the host gh token, with every scope gh has
+bxn env my-project OP_SERVICE_ACCOUNT_TOKEN
+bxn tailscale join my-project
+bxn auth 1password my-project github 'op://Work/GitHub/token'  # host op:// reference
 ~~~
 
 Sandbox-scoped sbx secrets are removed with the sandbox. `--gh-token-stdin`
@@ -356,18 +356,18 @@ Restarting a sandbox alone does not help: the daemon, not the sandbox, holds
 the approved set.
 
 Sandboxes created before v3 keep their scripts in an older place;
-`boxen NAME`, `shell`, `check` and the sign-in offer still work on them, and
+`bxn NAME`, `shell`, `check` and the sign-in offer still work on them, and
 nothing recreates them. They get none of the v3 kits: recreate one to move it
 to v3.
 
 ### Other tokens and variables
 
-`boxen env NAME VAR` sets `VAR` in a sandbox. `VAR` is the variable's name; the
+`bxn env NAME VAR` sets `VAR` in a sandbox. `VAR` is the variable's name; the
 value comes from a hidden prompt or stdin, never an argument:
 
 ~~~bash
-boxen env my-project SOME_TOKEN                  # prompts for the value
-op read 'op://Work/Some/token' | boxen env my-project SOME_TOKEN
+bxn env my-project SOME_TOKEN                  # prompts for the value
+op read 'op://Work/Some/token' | bxn env my-project SOME_TOKEN
 ~~~
 
 Where the value goes depends on the name:
@@ -391,15 +391,15 @@ sbx secret set-custom --sandbox my-project \
 The command prints a placeholder (`sbx-cs-…`). When a request to a listed host
 contains it, in a header or the body, the proxy swaps in the real value. A
 sandbox that already exists does not get the variable, so store the
-placeholder, which is not secret, with `boxen env`:
+placeholder, which is not secret, with `bxn env`:
 
 ~~~bash
-printf '%s' 'sbx-cs-…' | boxen env my-project EXAMPLE_API_KEY
+printf '%s' 'sbx-cs-…' | bxn env my-project EXAMPLE_API_KEY
 ~~~
 
 Repeat `--host` for more domains; `*.example.com` matches one label. Avoid
 `--value`, which leaves the token in shell history. sbx marks custom secrets as
-experimental. Use `boxen env` alone when the program needs the token itself,
+experimental. Use `bxn env` alone when the program needs the token itself,
 such as to sign requests or build a connection string.
 
 Only requests through the sbx proxy get the real value. Code run directly in
@@ -420,15 +420,15 @@ sbx exec my-project sh -c 'sed -n "s/^export \([^=]*\)=.*/\1/p" ~/.config/boxen/
 Join through the browser/device flow:
 
 ~~~bash
-./boxen tailscale join my-project
-./boxen tailscale status my-project
+./bxn tailscale join my-project
+./bxn tailscale status my-project
 ~~~
 
 Or pipe an auth key tagged `tag:boxen` directly from a secret manager:
 
 ~~~bash
 op read 'op://Development/Tailscale/auth-key' |
-  ./boxen tailscale join my-project --auth-key-stdin
+  ./bxn tailscale join my-project --auth-key-stdin
 ~~~
 
 The key travels on stdin into a temporary guest file with private permissions.
@@ -528,8 +528,8 @@ runs Boxen and nothing more. In a terminal, `create` asks which you want after
 the auth key; `serve` and Supabase Serve say so before they fetch anything.
 
 ~~~bash
-./boxen tailscale serve my-project 5173
-./boxen tailscale serve my-project supabase
+./bxn tailscale serve my-project 5173
+./bxn tailscale serve my-project supabase
 ~~~
 
 | Tailnet HTTPS port | Guest HTTP port | Service |
@@ -568,7 +568,7 @@ Direct peer UDP is not enabled; relay performance depends on the
 host network and SBX policy.
 
 ~~~bash
-./boxen exec my-project tail /var/log/boxen/tailscaled.log
+./bxn exec my-project tail /var/log/boxen/tailscaled.log
 ~~~
 
 ## RTK and editor details
@@ -589,8 +589,8 @@ language servers.
 ## Verify and develop
 
 ~~~bash
-./boxen validate                # Docker's kit validator on v3/; requires login
-./boxen check my-project        # Tool/browser/config checks inside the guest
+./bxn validate                # Docker's kit validator on v3/; requires login
+./bxn check my-project        # Tool/browser/config checks inside the guest
 
 python3 -m pip install -r tests/requirements.txt
 bash tests/run.sh                    # Syntax and isolated host CLI tests
@@ -598,7 +598,7 @@ bash tests/run.sh                    # Syntax and isolated host CLI tests
 # v3 sandbox and workspace-copy checks; run sequentially with other VMs stopped.
 bash tests/workload-smoke.sh claude rtk    # shell, claude, codex or grok; rtk or nortk
 bash tests/host/smoke-gate.sh              # every agent, with and without RTK, and Tailscale
-bash tests/host/update-gate.sh             # boxen update keeps every package
+bash tests/host/update-gate.sh             # bxn update keeps every package
 ~~~
 
 The host gates in `tests/host/` create real sandboxes on a machine with sbx and
@@ -608,7 +608,7 @@ Docker, on a shared library in which every check counts toward one exit status:
 bash tests/host/compose-gate.sh      # the workload alone and with each agent mixin
 bash tests/host/tools-gate.sh        # every tool baked in, build and rebuild times
 bash tests/host/mixins-gate.sh       # every Boxen mixin on at once, for each agent, and a restart
-bash tests/host/launcher-gate.sh     # boxen itself: create, check, validate, --open-network
+bash tests/host/launcher-gate.sh     # bxn itself: create, check, validate, --open-network
 bash tests/host/acceptance-gate.sh   # all of them, once, on a clean revision
 ~~~
 
@@ -626,7 +626,7 @@ The code suite includes isolated Tailscale tests using fake commands for route
 arguments, timeouts, and auth-file cleanup. Further live Tailscale smoke
 validation is skipped for this prototype at the user's request.
 
-Each workload check creates a disposable sandbox through `boxen create`,
+Each workload check creates a disposable sandbox through `bxn create`,
 capped at 2 GiB and two CPUs. It refuses concurrent sandboxes and, on Linux,
 requires at least 4 GiB available memory before starting. It also checks that
 RTK is composed as chosen, that the agent has no standing sudo, that

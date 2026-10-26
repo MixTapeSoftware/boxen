@@ -16,7 +16,7 @@ a sandbox; leave them to the user and say which ones a change needs.
 
 ## Rules
 
-- The launcher (`boxen`, `install`, `lib/`) and the host scripts run on macOS's
+- The launcher (`bxn`, `install`, `lib/`) and the host scripts run on macOS's
   Bash 3.2: no associative arrays, no `${var,,}`, and guard empty arrays under
   `set -u` with `${list[@]+"${list[@]}"}`.
 - Pinned downloads are checked with `sha256sum -c`; never `@latest` or

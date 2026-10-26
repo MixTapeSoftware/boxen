@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Task 7 gate: does boxen update keep a v3 sandbox's packages whole? For
-# Claude and Codex boxes made through ./boxen: every package installed before
+# Claude and Codex boxes made through ./bxn: every package installed before
 # the update is still installed after it (a newer version is fine, and is
 # recorded), dpkg and apt are clean, and the agent still runs. Then
-# update-all, which sees only this gate's sandboxes: gate_begin gives ./boxen
+# update-all, which sees only this gate's sandboxes: gate_begin gives ./bxn
 # a registry of its own. Needs sbx, Docker with buildx, and jq. Run from anywhere:
 #   bash tests/host/update-gate.sh
 source "$(dirname "$0")/lib.sh"
@@ -26,9 +26,9 @@ for agent in claude codex; do
   say "=== $name"
   # A rejected claim or a failed create ends the gate, so update never
   # touches a sandbox this gate did not make.
-  create_sandbox "$name" -- ./boxen create "$name" --no-copy --agent "$agent" --plugins none --no-tui
+  create_sandbox "$name" -- ./bxn create "$name" --no-copy --agent "$agent" --plugins none --no-tui
   must "inventory before the update in $name" save_inventory "$name" "$before"
-  check "./boxen update $name" ./boxen update "$name"
+  check "./bxn update $name" ./bxn update "$name"
   must "inventory after the update in $name" save_inventory "$name" "$after"
   installed "$before" > "$before.names"; installed "$after" > "$after.names"
   expect "every package installed before is installed after in $name" "" comm -23 "$before.names" "$after.names"
@@ -39,5 +39,5 @@ for agent in claude codex; do
 done
 
 say "=== update-all"
-check './boxen update-all (this gate'"'"'s sandboxes only)' ./boxen update-all
+check './bxn update-all (this gate'"'"'s sandboxes only)' ./bxn update-all
 gate_end

@@ -29,7 +29,7 @@ gate_begin() {
   GATE_DIR="$(cd "$GATE_DIR" && pwd)"
   GATE_LOG="$GATE_DIR/$GATE_NAME.log"
   : > "$GATE_LOG"
-  # A registry of its own, so a gate that runs ./boxen never reads or
+  # A registry of its own, so a gate that runs ./bxn never reads or
   # changes the user's.
   BOXEN_STATE_DIR="$GATE_DIR/$GATE_NAME.state"
   rm -rf "$BOXEN_STATE_DIR"

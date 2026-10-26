@@ -1,4 +1,4 @@
-# Sourced by boxen. Interactive kit selector for create.
+# Sourced by bxn. Interactive kit selector for create.
 # Reads and sets the caller's $agent and $selected (a comma list), so flags
 # and defaults arrive pre-selected. Bash 3.2 compatible.
 

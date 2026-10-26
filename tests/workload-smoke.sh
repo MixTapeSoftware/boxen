@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One disposable, memory-capped v3 sandbox made through ./boxen; no model
+# One disposable, memory-capped v3 sandbox made through ./bxn; no model
 # calls or personal keys. The second argument picks RTK (the default) or not:
 # shell and Grok with rtk exercise the "RTK not added for this agent" path.
 set -euo pipefail
@@ -91,12 +91,12 @@ p = Path(sys.argv[1])
 (p / ".hidden").write_text("preserved\n")
 PY
 started=1
-"$project/boxen" create "$name" "$fixture" --agent "$agent" \
+"$project/bxn" create "$name" "$fixture" --agent "$agent" \
   --plugins "$plugins" --cpus 2 --memory 2g --no-tui 2>&1 | tee "$logs/$agent-$rtk-create.log"
-"$project/boxen" check "$name"
+"$project/bxn" check "$name"
 if [[ "$agent" != shell ]]; then "$sbx_bin" exec "$name" bash -lc "$agent --version"; fi
 # Exercise the workload's entry script, which starts what BOXEN_AGENT names.
-"$project/boxen" run "$name" -- --version
+"$project/bxn" run "$name" -- --version
 case "$agent:$rtk" in
   claude:rtk) "$sbx_bin" exec "$name" grep -q 'rtk hook claude' /home/agent/.claude/settings.json ;;
   codex:rtk) "$sbx_bin" exec "$name" test -f /home/agent/.codex/hooks.json ;;
@@ -129,7 +129,7 @@ if "$sbx_bin" exec "$name" sudo -n true 2>/dev/null; then
   echo 'FAIL agent has standing sudo' >&2
   exit 1
 fi
-"$project/boxen" shell --with-sudo "$name" sudo -n true
+"$project/bxn" shell --with-sudo "$name" sudo -n true
 printf 'PASS no standing sudo; --with-sudo session works\n'
 # The copied workspace, including work done after the copy, survives a stop
 # and resume: no Boxen kit declares a volume, so this is the filesystem's.

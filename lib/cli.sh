@@ -1,4 +1,4 @@
-# Sourced by boxen. Credentials are never accepted as command arguments.
+# Sourced by bxn. Credentials are never accepted as command arguments.
 # Bash 3.2: no associative arrays; guard empty arrays under set -u.
 
 # Optional mixins in install order; rtkplus stands for the agent's own RTK
@@ -26,9 +26,9 @@ LOG_DIR="$STATE_DIR/logs"
 CRON_TAG="# boxen-update-all"
 UPDATE_SCRIPT='export DEBIAN_FRONTEND=noninteractive; apt-get update -qq && apt-get upgrade -y'
 
-die() { printf 'boxen: %s\n' "$*" >&2; exit 1; }
+die() { printf 'bxn: %s\n' "$*" >&2; exit 1; }
 log() { printf '[+] %s\n' "$*"; }
-warn() { printf 'boxen: %s\n' "$*" >&2; }
+warn() { printf 'bxn: %s\n' "$*" >&2; }
 # Call sbx by the path need_sbx resolved. Not `command sbx`: in Bash 3.2 a
 # failing `command` inside a function exits under set -e even within ||.
 SBX_PATH=""
@@ -73,7 +73,7 @@ set_agent() {
 
 usage() {
   cat <<'EOF'
-boxen create NAME [DIRECTORY] [options]      (also: init, -i)
+bxn create NAME [DIRECTORY] [options]        (also: init, -i)
   -p, --path DIR                 Host directory to copy (default: current directory)
   --no-copy                      Start with an empty /workspace
   --mode copy|mount|clone|none   copy (default), bind mount, sbx Git clone, or empty;
@@ -96,34 +96,34 @@ boxen create NAME [DIRECTORY] [options]      (also: init, -i)
   --no-tui                       Skip the interactive selector; use flags and defaults
   --dry-run                      Print the creation plan without creating
 
-boxen NAME                                   Open zsh in the sandbox
-boxen shell [--with-sudo] NAME [COMMAND...]  (also: -s) --with-sudo grants
+bxn NAME                                     Open zsh in the sandbox
+bxn shell [--with-sudo] NAME [COMMAND...]    (also: -s) --with-sudo grants
                                              sudo for this session only
-boxen run NAME [-- ARGS...]                  Attach to its agent
-boxen exec NAME COMMAND [ARGS...]            Run a command
-boxen net NAME [-b ADDR|-H HOST] [-l] [-r PORT] [PORT|HOST:SANDBOX ...]
+bxn run NAME [-- ARGS...]                    Attach to its agent
+bxn exec NAME COMMAND [ARGS...]              Run a command
+bxn net NAME [-b ADDR|-H HOST] [-l] [-r PORT] [PORT|HOST:SANDBOX ...]
                                              (also: -n) Publish ports on the host
-boxen env NAME VAR                           (also: -e) Set a variable; prompts silently
-boxen stop NAME                              (also: kill, -k)
-boxen kill-all                               (also: -ka) Stop all boxen sandboxes
-boxen delete NAME                            (also: -d) sbx asks to confirm
-boxen update NAME                            (also: -u) apt-get upgrade as root
-boxen update-all                             (also: -ua)
-boxen cron install [HOUR]|remove|status      Nightly update-all (default 19:00)
-boxen status [--once]                        sbx's dashboard, or its table once
-boxen ls                                     List sandboxes
-boxen check NAME                             Check installed plugins
-boxen plugins                                List the plugins and what they install
-boxen validate                               Validate the v3 kits using the installed sbx
-boxen doctor                                 Check prerequisites
+bxn env NAME VAR                             (also: -e) Set a variable; prompts silently
+bxn stop NAME                                (also: kill, -k)
+bxn kill-all                                 (also: -ka) Stop all boxen sandboxes
+bxn delete NAME                              (also: -d) sbx asks to confirm
+bxn update NAME                              (also: -u) apt-get upgrade as root
+bxn update-all                               (also: -ua)
+bxn cron install [HOUR]|remove|status        Nightly update-all (default 19:00)
+bxn status [--once]                          sbx's dashboard, or its table once
+bxn ls                                       List sandboxes
+bxn check NAME                               Check installed plugins
+bxn plugins                                  List the plugins and what they install
+bxn validate                                 Validate the v3 kits using the installed sbx
+bxn doctor                                   Check prerequisites
 
-boxen auth github NAME [--from-gh]           Store a fine-grained token (stdin or
+bxn auth github NAME [--from-gh]             Store a fine-grained token (stdin or
                                              prompt), or source the host gh token
-boxen auth 1password NAME SERVICE OP_REFERENCE
+bxn auth 1password NAME SERVICE OP_REFERENCE
                                              Source a credential from host op
-boxen tailscale join NAME [--auth-key-stdin]
-boxen tailscale status NAME
-boxen tailscale serve NAME PORT|supabase     Publish HTTPS :443 or the seven preset routes
+bxn tailscale join NAME [--auth-key-stdin]
+bxn tailscale status NAME
+bxn tailscale serve NAME PORT|supabase       Publish HTTPS :443 or the seven preset routes
                                              (fetches a certificate; http needs no serve)
 
 Commands that take NAME never create a sandbox; only create does.
@@ -141,7 +141,7 @@ listed() {
 sandbox_exists() {
   local status=0
   listed "$1" || status=$?
-  [[ "$status" != 2 ]] || die 'sbx ls failed; check boxen doctor.'
+  [[ "$status" != 2 ]] || die 'sbx ls failed; check bxn doctor.'
   [[ "$status" == 0 ]]
 }
 # Every command that takes NAME checks first, so a typo can never reach a
@@ -150,7 +150,7 @@ need_sandbox() {
   valid_name "$1"
   need_sbx
   sandbox_exists "$1" ||
-    die "No sandbox named $1 (see boxen ls). Nothing was created; use boxen create $1."
+    die "No sandbox named $1 (see bxn ls). Nothing was created; use bxn create $1."
 }
 # The registry has one line per sandbox: its NAME. A registry from before
 # 2026-10-24 may also hold NAME<TAB>cloud rows for Docker Cloud sandboxes;
@@ -174,7 +174,7 @@ managed_states() {
   [[ -s "$REGISTRY" ]] || return 0
   names="$(registry_names)"
   [[ -n "$names" ]] || return 0
-  json="$(sbx ls --json </dev/null)" || die 'sbx ls failed; check boxen doctor.'
+  json="$(sbx ls --json </dev/null)" || die 'sbx ls failed; check bxn doctor.'
   printf '%s' "$json" | jq -r --arg registry "$names" '
     ($registry | split("\n") | map(select(length > 0))) as $names
     | (.sandboxes? // .)[]? | select(.name as $n | $names | index($n)) | "\(.name) \(.status)"'
@@ -217,7 +217,7 @@ memory_ok() {
   avail="$(awk '/^MemAvailable:/ {print $2}' "$meminfo")"
   [[ -n "$avail" ]] || return 0
   if (( avail < need + 1048576 )); then
-    printf 'boxen: Only %s MiB of memory is available; a %s sandbox needs %s MiB plus 1024 MiB headroom.\n' \
+    printf 'bxn: Only %s MiB of memory is available; a %s sandbox needs %s MiB plus 1024 MiB headroom.\n' \
       "$((avail / 1024))" "$1" "$((need / 1024))" >&2
     printf 'Stop another sandbox or pass a smaller --memory. BOXEN_SKIP_MEMORY_CHECK=1 skips this check.\n' >&2
     return 1
@@ -321,9 +321,9 @@ copy_workspace() {
       tar --no-same-owner --warning=no-unknown-keyword -xf -
 }
 created_but() {
-  printf 'boxen: Sandbox %s was created, but %s failed.\n' "$1" "$2" >&2
-  printf 'Look inside with: boxen shell %s\n' "$1" >&2
-  printf 'To start over: boxen delete %s, then run create again.\n' "$1" >&2
+  printf 'bxn: Sandbox %s was created, but %s failed.\n' "$1" "$2" >&2
+  printf 'Look inside with: bxn shell %s\n' "$1" >&2
+  printf 'To start over: bxn delete %s, then run create again.\n' "$1" >&2
   exit 1
 }
 
@@ -370,7 +370,7 @@ offer_agent_login() {
   case "$answer" in n|N|no|No|NO) return 0 ;; esac
   GUEST_TTY=(-it)
   guest_script "$1" agent-login.sh login ||
-    warn "Sign-in did not finish; boxen $1 offers it again."
+    warn "Sign-in did not finish; bxn $1 offers it again."
   GUEST_TTY=()
 }
 # Reads `export VAR=value` on stdin and stores it in the sandbox, replacing any
@@ -481,7 +481,7 @@ create() {
       chadmux) die 'Chadmux/tmux integration is intentionally excluded.' ;;
       claude-code|codex|grok) die "Select the agent with --agent (one per sandbox), not --plugins $item." ;;
     esac
-    in_list "$item" "$PLUGINS" || die "Unknown plugin: $item (see boxen plugins)"
+    in_list "$item" "$PLUGINS" || die "Unknown plugin: $item (see bxn plugins)"
     add_plugin "$item"
   done
   # The selector shows in a terminal unless --plugins already chose the kits.
@@ -552,7 +552,7 @@ create() {
   need_sbx
   need_docker
   # The registry first, then sbx itself, before anything is made.
-  if registered "$name"; then die "$name already names a boxen sandbox (see boxen ls)"; fi
+  if registered "$name"; then die "$name already names a boxen sandbox (see bxn ls)"; fi
   if sandbox_exists "$name"; then
     die "$name already exists (not made by boxen); pick another name or remove it with sbx rm $name"
   fi
@@ -612,38 +612,38 @@ create() {
   done
   if [[ -n "$gh_token" ]]; then
     printf '%s' "$gh_token" | sbx secret set --sandbox "$name" github --force ||
-      warn "Storing the GitHub token failed; retry with: boxen auth github $name"
+      warn "Storing the GitHub token failed; retry with: bxn auth github $name"
   elif has_plugin gh-auth; then
-    printf 'Add a GitHub token later: boxen auth github %s\n' "$name"
+    printf 'Add a GitHub token later: bxn auth github %s\n' "$name"
   fi
   if [[ -n "$op_token" ]]; then
     printf 'export OP_SERVICE_ACCOUNT_TOKEN=%q\n' "$op_token" | write_guest_env "$name" OP_SERVICE_ACCOUNT_TOKEN ||
-      warn "Storing the 1Password token failed; retry with: boxen env $name OP_SERVICE_ACCOUNT_TOKEN"
+      warn "Storing the 1Password token failed; retry with: bxn env $name OP_SERVICE_ACCOUNT_TOKEN"
   elif has_plugin 1pass; then
-    printf 'Add a 1Password token later: boxen env %s OP_SERVICE_ACCOUNT_TOKEN\n' "$name"
+    printf 'Add a 1Password token later: bxn env %s OP_SERVICE_ACCOUNT_TOKEN\n' "$name"
   fi
   gh_token="" op_token=""
   if [[ -n "$ts_key" ]]; then
     if printf '%s\n' "$ts_key" | as_root "$name" -i /usr/local/bin/boxen-tailscale join --auth-key-stdin; then
       if [[ -n "$ts_port" ]]; then
         as_root "$name" /usr/local/bin/boxen-tailscale serve "$ts_port" ||
-          warn "Serving port $ts_port failed; retry with: boxen tailscale serve $name $ts_port"
+          warn "Serving port $ts_port failed; retry with: bxn tailscale serve $name $ts_port"
       fi
     else
-      warn "Joining the tailnet failed; retry with: boxen tailscale join $name"
+      warn "Joining the tailnet failed; retry with: bxn tailscale join $name"
     fi
     ts_key=""
   elif has_plugin tailscale; then
-    printf 'Join your tailnet: boxen tailscale join %s\n' "$name"
+    printf 'Join your tailnet: bxn tailscale join %s\n' "$name"
   fi
   if has_plugin tailscale; then
     printf 'Once joined, the sandbox reaches whatever your tailnet ACLs allow, outside sbx network policy.\n'
   fi
   offer_agent_login "$name"
   # Last, after sbx's own "To connect" hint, so this is what stays on screen.
-  printf '\nTo open a shell in the sandbox, run:\n  » boxen %s\n' "$name"
-  if [[ "$agent" != shell ]]; then printf 'Start the agent with: boxen run %s\n' "$name"; fi
-  printf 'Check the plugins with: boxen check %s\n' "$name"
+  printf '\nTo open a shell in the sandbox, run:\n  » bxn %s\n' "$name"
+  if [[ "$agent" != shell ]]; then printf 'Start the agent with: bxn run %s\n' "$name"; fi
+  printf 'Check the plugins with: bxn check %s\n' "$name"
 }
 
 cmd_shell() {
@@ -845,17 +845,17 @@ cmd_cron() {
       [[ "$hour" =~ ^[0-9]+$ && "$hour" -le 23 ]] || die "Invalid hour: $hour (0-23)"
       mkdir -p "$LOG_DIR"
       # cron's PATH is minimal; keep the one that finds sbx and jq now.
-      line="0 $hour * * * PATH=$(printf '%q' "$PATH") $(printf '%q' "$PROJECT_DIR/boxen") update-all >> $(printf '%q' "$LOG_DIR/cron.log") 2>&1 $CRON_TAG"
+      line="0 $hour * * * PATH=$(printf '%q' "$PATH") $(printf '%q' "$PROJECT_DIR/bxn") update-all >> $(printf '%q' "$LOG_DIR/cron.log") 2>&1 $CRON_TAG"
       { { crontab -l 2>/dev/null || true; } | { grep -vF "$CRON_TAG" || true; }; printf '%s\n' "$line"; } | crontab -
       log "Installed cron: daily at $(printf '%02d' "$((10#$hour))"):00; logs in $LOG_DIR/cron.log"
       ;;
     remove)
       { crontab -l 2>/dev/null || true; } | { grep -vF "$CRON_TAG" || true; } | crontab -
-      log 'Removed the boxen update cron'
+      log 'Removed the bxn update cron'
       ;;
     status)
       line="$(crontab -l 2>/dev/null | grep -F "$CRON_TAG" || true)"
-      if [[ -n "$line" ]]; then echo "Active: $line"; else echo 'No boxen update cron installed'; fi
+      if [[ -n "$line" ]]; then echo "Active: $line"; else echo 'No bxn update cron installed'; fi
       ;;
     *) die 'Usage: cron install [HOUR]|remove|status' ;;
   esac

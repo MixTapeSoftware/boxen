@@ -1,4 +1,4 @@
-# Sourced by boxen. Reading pasted values from a terminal.
+# Sourced by bxn. Reading pasted values from a terminal.
 #
 # Terminals can wrap a paste in escape sequences the user never sees: focus
 # reports (ESC [ O, ESC [ I) and bracketed paste (ESC [ 200~ ... ESC [ 201~).

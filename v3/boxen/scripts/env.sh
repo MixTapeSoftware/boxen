@@ -17,5 +17,5 @@ if [ -n "${HTTP_PROXY:-}" ]; then
   export npm_config_proxy="$HTTP_PROXY"
   export npm_config_https_proxy="${HTTPS_PROXY:-$HTTP_PROXY}"
 fi
-# Variables set with boxen env; reread on every source so changes land.
+# Variables set with bxn env; reread on every source so changes land.
 if [ -r "$HOME/.config/boxen/env.sh" ]; then . "$HOME/.config/boxen/env.sh"; fi

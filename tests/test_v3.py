@@ -169,7 +169,7 @@ class BoxenWorkload(ScriptCase):
         self.assertEqual(capability("boxen", "sbx@1").get("config"), None)
         context = capability("boxen", "agent-context@1")["config"]
         self.assertEqual(context["filename"], "AGENTS.md")
-        self.assertIn("boxen shell --with-sudo", " ".join(context["content"].split()))
+        self.assertIn("bxn shell --with-sudo", " ".join(context["content"].split()))
         self.assertEqual([d.name for d in kit_dirs() if descriptor(d.name)["kind"] == "workload"], ["boxen"])
 
     def test_image_starts_as_agent_through_boxen_entry(self):
@@ -615,7 +615,7 @@ esac
         for v2 in ("kits/", "agents/", "kit add", "template ls"):
             self.assertNotIn(v2, smoke)
         self.assertIn("shell|claude|codex|grok", smoke)
-        self.assertIn('"$project/boxen" create', smoke)
+        self.assertIn('"$project/bxn" create', smoke)
         gate = (ROOT / "tests/host/smoke-gate.sh").read_text()
         self.assertIn("for agent in shell claude codex grok", gate)
         self.assertIn("for rtk in rtk nortk", gate)
@@ -788,7 +788,7 @@ class Cutover(unittest.TestCase):
                 self.assertIn("v3/boxen/scripts/", text)
 
     def test_only_the_launcher_fallback_names_the_old_guest_path(self):
-        for path in [ROOT / "boxen", ROOT / "install", *sorted((ROOT / "lib").glob("*.sh"))]:
+        for path in [ROOT / "bxn", ROOT / "install", *sorted((ROOT / "lib").glob("*.sh"))]:
             for number, line in enumerate(path.read_text().splitlines(), 1):
                 with self.subTest(path=path.name, line=number):
                     self.assertNotRegex(line, r"(?<![./\w])(kits|agents)/")
