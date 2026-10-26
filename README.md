@@ -211,7 +211,7 @@ workload, each a single YAML file that runs scripts the image already has:
 | Mixin | What it adds |
 |---|---|
 | `v3/workspace` | The agent-owned workspace and the `/workspace` link (copied and empty workspaces) |
-| `v3/tailscale` | A userspace Tailscale node per sandbox; with Supabase Serve, the seven routes |
+| `v3/tailscale` | A userspace Tailscale node per sandbox, under a random name; with Supabase Serve, the seven routes |
 | `v3/gh-auth` | A proxy-managed GitHub token, and Git's credential helper through gh |
 | `v3/1pass` | 1Password's hosts for the baked op CLI |
 | `v3/rtkplus-claude`, `v3/rtkplus-codex` | RTK's hook for that agent |
@@ -434,6 +434,13 @@ op read 'op://Development/Tailscale/auth-key' |
 The key travels on stdin into a temporary guest file with private permissions.
 Tailscale receives that file's path; the file is removed afterward. No auth
 key belongs in a kit, CLI argument, image, shell profile, or environment file.
+
+The node joins as `boxen-` plus eight random hex digits, not as the sandbox's
+name. When `tailscale serve` fetches the node's HTTPS certificate from Let's
+Encrypt, that certificate, with the node's full name, goes into the public
+Certificate Transparency logs; only your tailnet can reach the node, but
+anyone can read what it is called. The guest keeps the random name, so a
+rejoin reuses it; `join` prints it, and `status` lists it first.
 
 **The sandbox runs an agent you do not fully trust, and a joined sandbox is a
 node on your tailnet, outside sbx's network policy.** Three things keep that

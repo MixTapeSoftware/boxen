@@ -492,7 +492,8 @@ class CLI(unittest.TestCase):
         self.assertEqual(subprocess.run(["bash", "-c", line + 'printf %s "$OP_SERVICE_ACCOUNT_TOKEN"'],
                                         capture_output=True, text=True).stdout, "ops_fake'$(x)")
         join = next(c for c in calls if "--auth-key-stdin" in c["args"])
-        self.assertEqual(join["args"], ["exec", "-i", "--user", "root", "box", "/usr/local/bin/boxen-tailscale", "join", "box", "--auth-key-stdin"])
+        # The guest picks the node's name; the sandbox name never reaches the tailnet.
+        self.assertEqual(join["args"], ["exec", "-i", "--user", "root", "box", "/usr/local/bin/boxen-tailscale", "join", "--auth-key-stdin"])
         self.assertEqual(base64.b64decode(join["stdin_b64"]).decode(), "tskey-auth-fake\n")
         self.assertIn(["exec", "--user", "root", "box", "/usr/local/bin/boxen-tailscale", "serve", "5173"], [c["args"] for c in calls])
         self.assertLoginCall(calls[-1]["args"], "box", "login")
@@ -797,7 +798,14 @@ class CLI(unittest.TestCase):
         self.assertEqual(base64.b64decode(call["stdin_b64"]).decode(), secret)
         self.assertNotIn(secret.strip(), json.dumps(call["args"]))
         self.assertNotIn(secret.strip(), result.stdout + result.stderr)
-        self.assertEqual(call["args"][:4], ["exec", "-i", "--user", "root"])
+        self.assertEqual(call["args"], ["exec", "-i", "--user", "root", "tailnet-test",
+                                        "/usr/local/bin/boxen-tailscale", "join", "--auth-key-stdin"])
+
+    def test_browser_join_passes_no_sandbox_name(self):
+        self.sandboxes("my-project")
+        self.cli("tailscale", "join", "my-project")
+        self.assertEqual(self.calls()[0]["args"],
+                         ["exec", "--user", "root", "my-project", "/usr/local/bin/boxen-tailscale", "join"])
 
     def test_tailscale_never_accepts_key_argument(self):
         self.sandboxes("scratch")

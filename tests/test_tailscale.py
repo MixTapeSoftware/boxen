@@ -30,8 +30,9 @@ class TailscaleControl(unittest.TestCase):
             FAKE_SELF_TAGS="tag:boxen", FAKE_SELF_FUNNEL_CAP="",
             # How reading the node back fails: an exit status, or junk output.
             FAKE_SELF_STATUS_EXIT="0", FAKE_SELF_JUNK="",
-            # Never read a real guest's preset when the tests run inside a sandbox.
+            # Never read a real guest's preset or node name when the tests run inside a sandbox.
             BOXEN_SERVE_PRESET_FILE=str(self.directory / "serve-preset"),
+            BOXEN_TS_HOSTNAME_FILE=str(self.directory / "ts-hostname"),
         )
         self.tool("tailscale", '''
 import hashlib, json, os, pathlib, stat, sys
@@ -102,6 +103,9 @@ print(path)
         calls = [json.loads(s) for s in self.log.read_text().splitlines()] if self.log.exists() else []
         return calls if action is None else [c for c in calls if c["args"][0] == action]
 
+    def hostname(self, call):
+        return next(a for a in call["args"] if a.startswith("--hostname=")).removeprefix("--hostname=")
+
     def test_supabase_routes(self):
         self.run_control("serve", "supabase")
         expected = [(443, 3000), (4410, 3010), (4431, 3001), (5432, 54321),
@@ -127,14 +131,14 @@ print(path)
     def assert_key_transport(self, exit_code):
         key = "test-secret-'quotes'-$(not-a-command)\n"
         self.env["FAKE_UP_EXIT"] = str(exit_code)
-        result = self.run_control("join", "test-node", "--auth-key-stdin", stdin=key, ok=exit_code == 0)
+        result = self.run_control("join", "--auth-key-stdin", stdin=key, ok=exit_code == 0)
         self.assertEqual(result.returncode, exit_code)
         call, = self.calls("up")
         self.assertEqual(call["key_digest"], hashlib.sha256(key.encode()).hexdigest())
         self.assertEqual(call["key_mode"], 0o600)
         self.assertNotIn(key.strip(), json.dumps(self.calls()) + result.stdout + result.stderr)
         self.assertEqual(list(self.directory.glob("join.*")), [])
-        self.assertIn("--hostname=test-node", call["args"])
+        self.assertRegex(self.hostname(call), r"^boxen-[0-9a-f]{8}$")
         # Tagged, so the node never carries a user's identity or Funnel grant.
         self.assertIn("--advertise-tags=tag:boxen", call["args"])
         # The agent user must not be able to reconfigure the node.
@@ -147,22 +151,54 @@ print(path)
         self.assert_key_transport(17)
 
     def test_empty_auth_key_is_rejected_and_removed(self):
-        self.run_control("join", "test-node", "--auth-key-stdin", ok=False)
+        self.run_control("join", "--auth-key-stdin", ok=False)
         self.assertEqual(self.calls("up"), [])
         self.assertEqual(list(self.directory.glob("join.*")), [])
 
     def test_browser_join_applies_selected_preset_without_auth_key(self):
         self.env["BOXEN_SERVE_PRESET"] = "supabase"
-        self.run_control("join", "test-node")
-        self.assertEqual(self.calls("up"), [{"args": ["up", "--hostname=test-node", "--advertise-tags=tag:boxen"]}])
+        self.run_control("join")
+        call, = self.calls("up")
+        self.assertEqual(call["args"], ["up", f"--hostname={self.hostname(call)}", "--advertise-tags=tag:boxen"])
         self.assertEqual(len(self.calls("serve")), 7)
+
+    def test_node_names_are_random_and_stable(self):
+        # The node's name is public once tailscale serve fetches its HTTPS
+        # certificate (Certificate Transparency), so it never carries the
+        # sandbox's name; the guest keeps it so a rejoin reuses it.
+        self.run_control("join")
+        first = self.hostname(self.calls("up")[0])
+        self.assertRegex(first, r"^boxen-[0-9a-f]{8}$")
+        self.assertEqual((self.directory / "ts-hostname").read_text().strip(), first)
+        self.run_control("join")
+        self.assertEqual(self.hostname(self.calls("up")[1]), first)
+        self.setUp()
+        self.run_control("join")
+        self.assertNotEqual(self.hostname(self.calls("up")[0]), first)
+
+    def test_a_corrupt_name_file_is_replaced(self):
+        (self.directory / "ts-hostname").write_text("my project; rm -rf /\n")
+        self.run_control("join")
+        self.assertRegex(self.hostname(self.calls("up")[0]), r"^boxen-[0-9a-f]{8}$")
+
+    def test_join_prints_the_tailnet_name(self):
+        result = self.run_control("join")
+        self.assertIn("test-node.tail.ts.net", result.stdout)
+        self.assertNotIn("test-node.tail.ts.net.", result.stdout)
+
+    def test_join_takes_no_hostname(self):
+        # A sandbox name on the command line would be the leak this guards against.
+        for args in (("join", "my-project"), ("join", "my-project", "--auth-key-stdin")):
+            with self.subTest(args=args):
+                self.run_control(*args, stdin="tskey-fake\n", ok=False)
+        self.assertEqual(self.calls(), [])
 
     def assert_join_refused(self, message, key=False):
         self.env["BOXEN_SERVE_PRESET"] = "supabase"
         if key:
-            result = self.run_control("join", "test-node", "--auth-key-stdin", stdin="tskey-fake\n", ok=False)
+            result = self.run_control("join", "--auth-key-stdin", stdin="tskey-fake\n", ok=False)
         else:
-            result = self.run_control("join", "test-node", ok=False)
+            result = self.run_control("join", ok=False)
         self.assertIn(message, result.stderr)
         # The node leaves the tailnet rather than staying joined in a state
         # the policy did not intend; nothing is served first.
@@ -218,15 +254,9 @@ print(path)
         self.assertEqual(self.calls(), [])
         self.run_control("serve", "supabase")
 
-    def test_hostnames_match_sandbox_names(self):
-        for value in ("dotted.name", "-leading", "x"):
-            with self.subTest(value=value):
-                self.run_control("join", value, ok=False)
-        self.assertEqual(self.calls(), [])
-
     def test_daemon_timeout_prevents_join(self):
         self.env["FAKE_READY"] = "0"
-        result = self.run_control("join", "test-node", ok=False)
+        result = self.run_control("join", ok=False)
         self.assertIn("Daemon not ready", result.stderr)
         self.assertEqual(len(self.calls("status")), 30)
         self.assertEqual(self.calls("up"), [])
@@ -244,7 +274,7 @@ print(path)
         result = self.run_control("serve", "8000", ok=False)
         self.assertIn("Supabase preset", result.stderr)
         self.assertEqual(self.calls(), [])
-        self.run_control("join", "test-node")
+        self.run_control("join")
         self.assertEqual(len(self.calls("serve")), 7)
 
 

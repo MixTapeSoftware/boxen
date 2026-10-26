@@ -619,7 +619,7 @@ create() {
   fi
   gh_token="" op_token=""
   if [[ -n "$ts_key" ]]; then
-    if printf '%s\n' "$ts_key" | as_root "$name" -i /usr/local/bin/boxen-tailscale join "$name" --auth-key-stdin; then
+    if printf '%s\n' "$ts_key" | as_root "$name" -i /usr/local/bin/boxen-tailscale join --auth-key-stdin; then
       if [[ -n "$ts_port" ]]; then
         as_root "$name" /usr/local/bin/boxen-tailscale serve "$ts_port" ||
           warn "Serving port $ts_port failed; retry with: boxen tailscale serve $name $ts_port"
@@ -908,10 +908,10 @@ tailscale_command() {
   case "$action" in
     join)
       if [[ $# == 0 ]]; then
-        as_root "$name" /usr/local/bin/boxen-tailscale join "$name"
+        as_root "$name" /usr/local/bin/boxen-tailscale join
       elif [[ $# == 1 && "$1" == --auth-key-stdin ]]; then
         [[ ! -t 0 ]] || die 'Pipe an auth key on stdin; do not pass it as an argument.'
-        as_root "$name" -i /usr/local/bin/boxen-tailscale join "$name" --auth-key-stdin
+        as_root "$name" -i /usr/local/bin/boxen-tailscale join --auth-key-stdin
       else die 'Use: tailscale join NAME [--auth-key-stdin]'; fi
       ;;
     status)

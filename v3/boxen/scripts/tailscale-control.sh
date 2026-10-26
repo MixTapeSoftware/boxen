@@ -11,7 +11,23 @@ preset="${BOXEN_SERVE_PRESET:-$(cat "${BOXEN_SERVE_PRESET_FILE:-/etc/boxen/serve
 # none of the user's access and no Funnel grant aimed at members. The
 # README's policy snippet names this tag.
 tag=tag:boxen
+# The node's name is public: tailscale serve fetches its HTTPS certificate
+# from Let's Encrypt, and every certificate goes into the Certificate
+# Transparency logs. So the name is random, never the sandbox's, and the
+# guest keeps it so a rejoin reuses it.
+hostname_file="${BOXEN_TS_HOSTNAME_FILE:-/etc/boxen/ts-hostname}"
+hostname_re='^boxen-[0-9a-f]{8}$'
 fail() { printf 'tailscale: %s\n' "$*" >&2; exit 1; }
+node_name() {
+  local name
+  name="$(cat "$hostname_file" 2>/dev/null || true)"
+  if [[ ! "$name" =~ $hostname_re ]]; then
+    name="boxen-$(od -An -N4 -tx1 /dev/urandom | tr -d ' \n')"
+    [[ "$name" =~ $hostname_re ]] || fail 'Could not make a node name'
+    printf '%s\n' "$name" > "$hostname_file"
+  fi
+  printf '%s\n' "$name"
+}
 # Leave the tailnet rather than stay joined with access the policy did not intend.
 leave() { tailscale logout || true; fail "$@"; }
 wait_for_daemon() {
@@ -31,6 +47,7 @@ wait_for_daemon() {
 verify_node() {
   local self tags funnel
   self="$(tailscale status --self --peers=false --json)" || leave 'Could not verify the node after joining: tailscale status failed'
+  dns_name="$(printf '%s' "$self" | jq -r '.Self.DNSName // "" | rtrimstr(".")')" || leave 'Could not verify the node after joining: unreadable status'
   tags="$(printf '%s' "$self" | jq -r '.Self.Tags // [] | join(",")')" || leave 'Could not verify the node after joining: unreadable status'
   funnel="$(printf '%s' "$self" | jq -r '.Self.CapMap // {} | keys[]
     | select(. == "funnel" or startswith("https://tailscale.com/cap/funnel"))')" || leave 'Could not verify the node after joining: unreadable status'
@@ -62,11 +79,12 @@ serve() {
 case "${1:-}" in
   join)
     shift
-    [[ $# -ge 1 ]] || fail 'Missing hostname'
-    hostname="$1"; shift
-    [[ "$hostname" =~ ^[a-zA-Z0-9][a-zA-Z0-9-]+$ ]] || fail 'Invalid hostname'
+    # No hostname argument: a sandbox name here would end up in public logs.
+    [[ $# == 0 || ( $# == 1 && "$1" == --auth-key-stdin ) ]] || fail 'Use join [--auth-key-stdin]'
     wait_for_daemon
-    if [[ $# == 1 && "$1" == --auth-key-stdin ]]; then
+    hostname="$(node_name)"
+    dns_name=""
+    if [[ $# == 1 ]]; then
       umask 077
       auth_file="$(mktemp /var/run/tailscale/join.XXXXXX)"
       trap 'rm -f "$auth_file"' EXIT
@@ -75,16 +93,17 @@ case "${1:-}" in
       tailscale up --auth-key="file:$auth_file" --hostname="$hostname" --advertise-tags="$tag"
       rm -f "$auth_file"
       trap - EXIT
-    elif [[ $# == 0 ]]; then
+    else
       tailscale up --hostname="$hostname" --advertise-tags="$tag"
-    else fail 'Use join HOSTNAME [--auth-key-stdin]'; fi
+    fi
     verify_node
     # tailscaled keeps serve config in its state, so the preset is applied once.
     if [[ "$preset" == supabase ]]; then serve supabase; fi
+    printf 'Joined as %s\n' "${dns_name:-$hostname}"
     tailscale status
     ;;
   serve)
     [[ $# == 2 ]] || fail 'Use serve PORT|supabase'
     serve "$2" ;;
-  *) fail 'Use join HOSTNAME [--auth-key-stdin] or serve PORT|supabase' ;;
+  *) fail 'Use join [--auth-key-stdin] or serve PORT|supabase' ;;
 esac
