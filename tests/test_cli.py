@@ -595,8 +595,8 @@ class CLI(unittest.TestCase):
     def test_host_wide_agent_secret_is_flagged(self):
         self.env["FAKE_GLOBAL_SECRETS"] = "anthropic"
         result = self.cli("create", "box", "--no-copy", "--agent", "claude")
-        self.assertIn("host-wide anthropic secret, so claude's own sign-in inside the sandbox cannot work", result.stderr)
-        self.assertIn("masks the sign-in token even when the binding is declined", result.stderr)
+        self.assertIn("host-wide anthropic secret; with one stored, claude's own sign-in inside the sandbox has failed with 401 errors", result.stderr)
+        self.assertIn("placeholder token", result.stderr)
         self.assertIn("sbx secret rm anthropic", result.stderr)
         result = self.cli("create", "other", "--no-copy", "--agent", "codex")
         self.assertNotIn("host-wide", result.stderr)
@@ -605,12 +605,12 @@ class CLI(unittest.TestCase):
         self.assertNotIn("host-wide", self.cli("doctor").stdout)
         self.env["FAKE_GLOBAL_SECRETS"] = "openai"
         out = self.cli("doctor").stdout
-        self.assertIn("Warning: sbx has a host-wide openai secret, so codex's own sign-in inside a sandbox cannot work", out)
+        self.assertIn("Warning: sbx has a host-wide openai secret; with one stored, codex's own sign-in inside a sandbox has failed with 401 errors", out)
         self.assertIn("sbx secret rm openai", out)
         self.assertNotIn("anthropic", out.split("Warning:")[1])
 
     def test_no_sign_in_offer_beside_a_host_wide_secret(self):
-        # The offer would fail with 401s; the warning explains why instead.
+        # The offer has been seen to fail with 401s; the warning says so instead.
         self.sandboxes("box")
         self.env["FAKE_LOGIN_STATUS"] = "10"
         self.env["FAKE_GLOBAL_SECRETS"] = "anthropic"
