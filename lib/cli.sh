@@ -18,8 +18,11 @@ STATE_DIR="${BOXEN_STATE_DIR:-$HOME/.local/state/boxen}"
 # sbx's approval record for third-party kit credentials; install writes the
 # github binding, since a detached sandbox never sees sbx's approval prompt.
 SBX_CREDENTIALS="${BOXEN_SBX_CREDENTIALS:-$HOME/.config/sbx/credentials.yaml}"
-github_binding_present() {
-  [[ -f "$SBX_CREDENTIALS" ]] && grep -Eq '^[[:space:]]+github:[[:space:]]*$' "$SBX_CREDENTIALS"
+# Whether the user has approved Boxen's kits to use SERVICE's credential;
+# install writes the approvals. Without one, sbx withholds the credential and
+# the proxy refuses a Claude sign-in made inside the sandbox.
+binding_present() {
+  [[ -f "$SBX_CREDENTIALS" ]] && grep -Eq "^[[:space:]]+$1:[[:space:]]*\$" "$SBX_CREDENTIALS"
 }
 REGISTRY="$STATE_DIR/sandboxes"
 LOG_DIR="$STATE_DIR/logs"
@@ -422,7 +425,7 @@ create() {
   local skills=off mounts="" tui=1 chose_plugins=0 open_network=0
   local gh_stdin=0
   local gh_token="" op_token="" ts_key="" ts_port="" port_re='^[0-9]+$'
-  local selected="" item kit workload identity value home
+  local selected="" item kit workload identity value home service
   local kit_args=() command=() items=()
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -521,8 +524,14 @@ create() {
   fi
   # Without the binding the proxy withholds the token and GitHub sees the
   # placeholder, with nothing in the sandbox to say why.
-  if has_plugin gh-auth && ! github_binding_present; then
+  if has_plugin gh-auth && ! binding_present github; then
     die "gh-auth needs sbx's approval to use the github secret, and a detached sandbox cannot ask for it. Run ./install, which writes the binding to $SBX_CREDENTIALS, then create again."
+  fi
+  case "$agent" in
+    claude) service=anthropic ;; codex) service=openai ;; grok) service=xai ;; *) service="" ;;
+  esac
+  if [[ -n "$service" ]] && ! binding_present "$service"; then
+    die "$agent needs sbx's approval to use the $service credential, and a detached sandbox cannot ask for it; without it the agent's sign-in or key is refused. Run ./install, which writes the binding to $SBX_CREDENTIALS, then create again."
   fi
   if [[ -z "$cpus" ]]; then
     cpus="$(host_cpus)"
@@ -976,7 +985,7 @@ version_ge() {
 }
 
 cmd_doctor() {
-  local version service failed=0
+  local version service missing failed=0
   [[ $# == 0 ]] || die 'Usage: doctor'
   need_sbx
   version="$(sbx version 2>/dev/null | sed -n 's/.*version:\{0,1\} v\{0,1\}\([0-9][0-9.]*\).*/\1/p' | head -1)"
@@ -994,10 +1003,14 @@ cmd_doctor() {
     printf 'Docker builder: unavailable (sbx builds local v3 kits with it)\n'; failed=1
   fi
   command -v jq >/dev/null 2>&1 || printf 'Note: kill-all and update-all need jq.\n'
-  if github_binding_present; then
-    printf 'GitHub binding: ok\n'
+  missing=""
+  for service in github anthropic openai xai; do
+    binding_present "$service" || missing="$missing $service"
+  done
+  if [[ -z "$missing" ]]; then
+    printf 'Credential bindings: ok\n'
   else
-    printf 'GitHub binding: missing (run ./install; without it gh-auth sandboxes get no token)\n'
+    printf 'Credential bindings: missing%s (run ./install; without them sbx withholds those credentials and refuses the agent'"'"'s sign-in)\n' "$missing"
   fi
   for service in anthropic openai; do
     if host_wide_secret "$service"; then

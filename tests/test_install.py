@@ -40,6 +40,25 @@ else:
 """
 
 
+FULL = """bindings:
+  github:
+    apiKey:
+      domains: [api.github.com, github.com, gist.github.com]
+  anthropic:
+    apiKey:
+      domains: [api.anthropic.com, console.anthropic.com, claude.ai, mcp-proxy.anthropic.com]
+    oauth:
+      domains: [platform.claude.com, api.anthropic.com, console.anthropic.com, claude.ai, mcp-proxy.anthropic.com]
+  openai:
+    apiKey:
+      domains: [api.openai.com, openai.com]
+    oauth:
+      domains: [auth.openai.com, chatgpt.com, api.openai.com, openai.com]
+  xai:
+    apiKey:
+      domains: [api.x.ai]
+"""
+
 class Install(unittest.TestCase):
     def setUp(self):
         temp = tempfile.TemporaryDirectory(prefix="boxen-install-")
@@ -87,21 +106,35 @@ class Install(unittest.TestCase):
         result = self.install("--no-chadmux")
         self.assertNotIn("tagOwners", result.stdout + result.stderr)
 
-    def test_writes_the_github_credential_binding(self):
+    def test_writes_the_credential_bindings(self):
         # sbx approves a third-party kit's credential through a prompt on the
         # first interactive run; boxen's sandboxes start detached, so the
-        # binding is written here instead.
+        # bindings are written here instead: github for gh-auth, and each
+        # agent's own service, including the OAuth sign-in Claude Code makes
+        # from inside the sandbox, which the proxy refuses without one.
         credentials = self.home / ".config/sbx/credentials.yaml"
         result = self.install("--no-chadmux")
-        self.assertIn("Approved the gh-auth", result.stdout)
-        self.assertEqual(credentials.read_text().splitlines()[-4:], [
-            "bindings:", "  github:", "    apiKey:", "      domains: [api.github.com, github.com, gist.github.com]"])
+        self.assertIn("Approved the kits' credentials (github, anthropic, openai, xai)", result.stdout)
+        text = credentials.read_text()
+        self.assertTrue(text.startswith("# Written by boxen's install."))
+        self.assertEqual(text[text.index("bindings:"):], FULL)
         # sandboxd reads the file when it starts and not again.
         self.assertIn("sbx daemon restart", result.stdout)
         self.assertIn("stops running sandboxes", result.stdout)
         result = self.install("--no-chadmux")
-        self.assertIn("binding present", result.stdout)
+        self.assertIn("bindings present", result.stdout)
         self.assertNotIn("sbx daemon restart", result.stdout)
+
+    def test_brings_an_older_boxen_bindings_file_up_to_date(self):
+        credentials = self.home / ".config/sbx/credentials.yaml"
+        credentials.parent.mkdir(parents=True)
+        credentials.write_text("# Written by boxen's install. Approves the gh-auth mixin's use of the github secret.\n"
+                               "bindings:\n  github:\n    apiKey:\n      domains: [api.github.com, github.com, gist.github.com]\n")
+        result = self.install("--no-chadmux")
+        self.assertIn("Updated the credential bindings", result.stdout)
+        self.assertIn("sbx daemon restart", result.stdout)
+        text = credentials.read_text()
+        self.assertEqual(text[text.index("bindings:"):], FULL)
 
     def test_leaves_someone_elses_credentials_file_alone(self):
         credentials = self.home / ".config/sbx/credentials.yaml"
@@ -110,8 +143,13 @@ class Install(unittest.TestCase):
         credentials.write_text(before)
         result = self.install("--no-chadmux")
         self.assertEqual(credentials.read_text(), before)
-        self.assertIn("without a github binding", result.stderr)
-        self.assertIn("domains: [api.github.com, github.com, gist.github.com]", result.stdout)
+        self.assertIn("without bindings for: github openai xai", result.stderr)
+        for line in ("  github:", "domains: [api.github.com, github.com, gist.github.com]",
+                     "  openai:", "domains: [auth.openai.com, chatgpt.com, api.openai.com, openai.com]",
+                     "  xai:", "domains: [api.x.ai]"):
+            self.assertIn(line, result.stdout)
+        # The anthropic entry it already has is not printed again.
+        self.assertNotIn("  anthropic:", result.stdout)
 
     def test_drops_the_old_boxen_link_into_this_checkout(self):
         bin_dir = self.home / ".local/bin"

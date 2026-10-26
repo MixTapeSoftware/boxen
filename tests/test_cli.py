@@ -138,7 +138,8 @@ class CLI(unittest.TestCase):
             self.env.pop(knob, None)
         # sbx's approval record for the gh-auth mixin's credential; install writes it.
         self.credentials = self.directory / "credentials.yaml"
-        self.credentials.write_text("bindings:\n  github:\n    apiKey:\n      domains: [api.github.com, github.com]\n")
+        self.credentials.write_text("bindings:\n" + "".join(
+            f"  {service}:\n    apiKey:\n      domains: [example.com]\n" for service in ("github", "anthropic", "openai", "xai")))
         self.env["BOXEN_SBX_CREDENTIALS"] = str(self.credentials)
         # Prevent real global Git identity/configuration from affecting tests.
         self.env["GIT_CONFIG_GLOBAL"] = str(self.directory / "gitconfig")
@@ -878,12 +879,25 @@ class CLI(unittest.TestCase):
         self.cli("create", "plain", "--no-copy", "--plugins", "tailscale")
         self.assertEqual(self.calls()[0]["args"][0], "create")
 
-    def test_doctor_reports_the_github_binding(self):
-        self.assertIn("GitHub binding: ok", self.cli("doctor").stdout)
+    def test_doctor_reports_the_credential_bindings(self):
+        self.assertIn("Credential bindings: ok", self.cli("doctor").stdout)
         self.credentials.write_text("bindings:\n  anthropic:\n    apiKey:\n      domains: [api.anthropic.com]\n")
         result = self.cli("doctor")
-        self.assertIn("GitHub binding: missing", result.stdout)
+        self.assertIn("Credential bindings: missing github openai xai", result.stdout)
         self.assertIn("./install", result.stdout)
+
+    def test_create_refuses_an_agent_without_its_credential_binding(self):
+        # Without the binding sbx withholds the agent's credential and its proxy
+        # refuses the sign-in Claude Code makes from inside the sandbox.
+        self.credentials.write_text("bindings:\n  github:\n    apiKey:\n      domains: [github.com]\n")
+        for agent, service in (("claude", "anthropic"), ("codex", "openai"), ("grok", "xai")):
+            with self.subTest(agent=agent):
+                result = self.cli("create", agent + "-box", "--no-copy", "--agent", agent, ok=False)
+                self.assertIn(f"{agent} needs sbx's approval to use the {service} credential", result.stderr)
+                self.assertIn("./install", result.stderr)
+                self.assertEqual(self.calls(), [])
+        self.cli("create", "plain", "--no-copy")
+        self.assertEqual(self.calls()[0]["args"][0], "create")
 
     def test_secret_sources_are_host_references(self):
         self.sandboxes("scratch")

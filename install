@@ -98,27 +98,76 @@ if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
   printf '  export PATH="$HOME/.local/bin:$PATH"\n'
 fi
 
-# sbx lets a third-party kit use a stored secret only after the user approves
-# a binding for that service, through a prompt on the kit's first interactive
-# run. Boxen starts every sandbox detached, so the prompt is never seen and
-# the gh-auth mixin's token would be withheld: GitHub then receives the
-# placeholder. The binding is an approval record, not a secret.
+# sbx lets a third-party kit use a credential only after the user approves a
+# binding for that service, through a prompt on the kit's first interactive
+# run; Docker's own kits need none. Boxen's workload is third-party, so every
+# credential its sandboxes use needs one, and Boxen starts every sandbox
+# detached, so the prompt is never seen. Without a binding the credential is
+# withheld: the gh-auth mixin's token never reaches GitHub, a stored agent key
+# never reaches its service, and the proxy refuses Claude Code's sign-in from
+# inside the sandbox ("OAuth refresh denied (no authorizing binding)") because
+# it manages that sign-in's token exchange. Bindings are approval records,
+# not secrets. The oauth domains are each kit's token endpoint host plus the
+# hosts it injects into; the apiKey domains are the hosts it injects into.
 credentials="${BOXEN_SBX_CREDENTIALS:-$HOME/.config/sbx/credentials.yaml}"
-binding='bindings:
+header="# Written by boxen's install. Approves the credentials Boxen's kits use: the gh-auth"
+bindings='bindings:
   github:
     apiKey:
-      domains: [api.github.com, github.com, gist.github.com]'
-if [[ ! -e "$credentials" ]]; then
-  mkdir -p "$(dirname "$credentials")"
-  printf '# Written by boxen'"'"'s install. Approves the gh-auth mixin'"'"'s use of the github secret.\n%s\n' "$binding" > "$credentials"
-  log "Approved the gh-auth mixin's GitHub credential in $credentials"
+      domains: [api.github.com, github.com, gist.github.com]
+  anthropic:
+    apiKey:
+      domains: [api.anthropic.com, console.anthropic.com, claude.ai, mcp-proxy.anthropic.com]
+    oauth:
+      domains: [platform.claude.com, api.anthropic.com, console.anthropic.com, claude.ai, mcp-proxy.anthropic.com]
+  openai:
+    apiKey:
+      domains: [api.openai.com, openai.com]
+    oauth:
+      domains: [auth.openai.com, chatgpt.com, api.openai.com, openai.com]
+  xai:
+    apiKey:
+      domains: [api.x.ai]'
+wanted="$header
+# mixin's github secret and the Claude, Codex and Grok agents' own services.
+$bindings"
+# The services a stranger's file must mention, and the block for each.
+binding_block() {
+  local line keep=0
+  while IFS= read -r line; do
+    case "$line" in "  $1:") keep=1 ;; "  "[a-z]*:) keep=0 ;; esac
+    [[ "$keep" == 0 ]] || printf '%s\n' "$line"
+  done <<< "$bindings"
+}
+restart_note() {
   # sandboxd reads the file when it starts and not again.
   echo 'If sbx is already running, run: sbx daemon restart (stops running sandboxes;'
-  echo 'resume one with sbx run -d --name NAME). Until then the token is withheld.'
-elif grep -Eq '^[[:space:]]+github:[[:space:]]*$' "$credentials"; then
-  log "GitHub credential binding present in $credentials"
+  echo 'resume one with sbx run -d --name NAME). Until then the credentials are withheld.'
+}
+if [[ ! -e "$credentials" ]]; then
+  mkdir -p "$(dirname "$credentials")"
+  printf '%s\n' "$wanted" > "$credentials"
+  log "Approved the kits' credentials (github, anthropic, openai, xai) in $credentials"
+  restart_note
+elif { IFS= read -r first < "$credentials"; [[ "$first" == '# Written by boxen'* ]]; }; then
+  # Boxen's own file: bring it up to date, as an older install wrote github only.
+  if [[ "$(cat "$credentials")" == "$wanted" ]]; then
+    log "Credential bindings present in $credentials"
+  else
+    printf '%s\n' "$wanted" > "$credentials"
+    log "Updated the credential bindings in $credentials (github, anthropic, openai, xai)"
+    restart_note
+  fi
 else
-  warn "$credentials exists without a github binding; gh-auth sandboxes get no token until it holds:"
-  printf '%s\n' "$binding" | sed 's/^/  /'
+  missing=""
+  for service in github anthropic openai xai; do
+    grep -Eq "^[[:space:]]+$service:[[:space:]]*$" "$credentials" || missing="$missing $service"
+  done
+  if [[ -z "$missing" ]]; then
+    log "Credential bindings present in $credentials"
+  else
+    warn "$credentials exists without bindings for:$missing. Those credentials are withheld from sandboxes until it holds:"
+    for service in $missing; do binding_block "$service" | sed 's/^/  /'; done
+  fi
 fi
 log 'Done. Next: bxn doctor'

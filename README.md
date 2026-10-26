@@ -330,24 +330,43 @@ Sandbox-scoped sbx secrets are removed with the sandbox. `--gh-token-stdin`
 reads the token from stdin's first line instead of a prompt, for scripts.
 
 A stored token is not enough on its own. sbx lets a third-party kit use a
-secret only after you approve a *binding* for that service, normally through a
-prompt the first time the kit runs interactively. Boxen starts every sandbox
-detached, so that prompt is never shown; sbx then starts the sandbox with the
-credential withheld, the proxy passes GitHub traffic through untouched
-(`sbx policy log NAME` shows `forward-bypass`), and `gh` gets "Bad credentials"
-from the placeholder. `./install` therefore writes the approval to
-`~/.config/sbx/credentials.yaml`:
+credential only after you approve a *binding* for that service, normally
+through a prompt the first time the kit runs interactively; Docker's own kits
+need none, but Boxen's workload is third-party, so every credential its
+sandboxes use needs one. Boxen starts every sandbox detached, so that prompt
+is never shown and sbx starts the sandbox with the credential withheld: the
+proxy passes GitHub traffic through untouched (`sbx policy log NAME` shows
+`forward-bypass`) and `gh` gets "Bad credentials" from the placeholder, a
+stored agent key never reaches its service, and the proxy answers Claude
+Code's sign-in from inside the sandbox with `OAuth refresh denied (no
+authorizing binding)`, because it manages that sign-in's token exchange.
+`./install` therefore writes the approvals to `~/.config/sbx/credentials.yaml`:
 
 ~~~yaml
 bindings:
   github:
     apiKey:
       domains: [api.github.com, github.com, gist.github.com]
+  anthropic:
+    apiKey:
+      domains: [api.anthropic.com, console.anthropic.com, claude.ai, mcp-proxy.anthropic.com]
+    oauth:
+      domains: [platform.claude.com, api.anthropic.com, console.anthropic.com, claude.ai, mcp-proxy.anthropic.com]
+  openai:
+    apiKey:
+      domains: [api.openai.com, openai.com]
+    oauth:
+      domains: [auth.openai.com, chatgpt.com, api.openai.com, openai.com]
+  xai:
+    apiKey:
+      domains: [api.x.ai]
 ~~~
 
-If that file already exists, `install` prints the block for you to merge
-instead of editing it. `create` refuses `gh-auth` until the binding is there,
-and `doctor` reports it. The binding is an approval record, not a secret.
+`install` rewrites a file it wrote before, so an older github-only one is
+brought up to date; if the file is someone else's, it prints the missing
+entries for you to merge instead of editing it. `create` refuses `gh-auth`
+and every agent sandbox until the binding they need is there, and `doctor`
+lists what is missing. A binding is an approval record, not a secret.
 
 sandboxd reads the file when it starts and not again, so after writing it on
 a host where sbx is already running, run `sbx daemon restart`. That stops
