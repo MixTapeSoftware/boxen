@@ -483,6 +483,13 @@ class CLI(unittest.TestCase):
                     (b"Tailscale auth key", b"tskey-auth-fake\r"), (b"Dev port", b"5173\r"),
                     (b"Sign in to your subscription now?", b"\r")])
         self.assertEqual(code, 0, output)
+        # The choice is explained before the port prompt: http on any port with
+        # no certificate, or https for one port, which publishes the node's name.
+        self.assertIn("http://NODE.TAILNET.ts.net:PORT", output)
+        self.assertIn("Let's Encrypt", output)
+        self.assertIn("reachable only from your tailnet", output)
+        self.assertLess(output.index("Let's Encrypt"), output.index("Dev port"))
+        self.assertIn("blank to stay on http", output)
         calls = self.calls()
         github = next(c for c in calls if c["args"][:2] == ["secret", "set"])
         self.assertEqual(github["args"], ["secret", "set", "--sandbox", "box", "github", "--force"])
@@ -816,6 +823,17 @@ class CLI(unittest.TestCase):
         self.sandboxes("box")
         self.cli("tailscale", "status", "box")
         self.assertEqual(self.calls()[0]["args"], ["exec", "--user", "root", "box", "tailscale", "status"])
+
+    def test_tailscale_serve_says_what_the_certificate_publishes(self):
+        self.sandboxes("box")
+        for target in ("5173", "supabase"):
+            with self.subTest(target=target):
+                result = self.cli("tailscale", "serve", "box", target)
+                self.assertIn("Let's Encrypt", result.stdout)
+                self.assertIn("public", result.stdout)
+                self.assertIn("reachable only from your tailnet", result.stdout)
+                self.assertEqual(self.calls()[-1]["args"],
+                                 ["exec", "--user", "root", "box", "/usr/local/bin/boxen-tailscale", "serve", target])
 
     def test_github_defaults_to_a_piped_fine_grained_token(self):
         self.sandboxes("box")

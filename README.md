@@ -313,7 +313,7 @@ provisioning. Leave any blank to skip it.
 |---|---|---|
 | gh-auth | A fine-grained GitHub token (Contents read/write, Metadata read-only) | An sbx secret scoped to this sandbox; the `gh-auth` mixin declares it as a proxy-managed `GH_TOKEN`, so the proxy injects it and the sandbox sees a placeholder. Needs the binding `./install` writes (below) |
 | 1pass | A 1Password service account token | Inside the sandbox, for `op`; the agent can read it |
-| tailscale | An auth key tagged `tag:boxen`, and a dev port for :443 unless Supabase Serve is selected | Straight to the sandbox's tailnet join; not stored |
+| tailscale | An auth key tagged `tag:boxen`, then a choice: previews over http on any port (the default, no certificate), or one dev port served over HTTPS on :443. HTTPS fetches a Let's Encrypt certificate, which lists the node's name in the public certificate logs; the node itself stays reachable only from your tailnet. Supabase Serve is HTTPS, so it skips the question | Straight to the sandbox's tailnet join; not stored |
 
 Without a terminal, or after skipping, add them later:
 
@@ -508,6 +508,24 @@ in check:
 
 The node has no operator, so the agent cannot change its settings; `join`,
 `serve` and `status` run as root.
+
+### Previews: http by default, HTTPS by choice
+
+Once joined, `http://NODE.TAILNET.ts.net:PORT` reaches any port the sandbox
+listens on: userspace tailscaled forwards an incoming tailnet connection to the
+same port on the guest's loopback, so there is nothing to configure and no
+certificate is issued. `join` prints the node's name. The link is already
+encrypted by WireGuard; what plain http loses is the browser's secure context
+(service workers, `crypto.subtle`, `Secure` cookies), which a dev preview
+rarely needs. With http, the policy rule above should list the ports your apps
+listen on, such as `tag:boxen:3000,54323`, instead of the HTTPS ports.
+
+`serve` publishes one port, or the Supabase preset, over HTTPS instead. That
+fetches a Let's Encrypt certificate, which lists the node's name in the public
+Certificate Transparency logs; the node itself stays reachable only from your
+tailnet, and the name is random (above), so the record says that your tailnet
+runs Boxen and nothing more. In a terminal, `create` asks which you want after
+the auth key; `serve` and Supabase Serve say so before they fetch anything.
 
 ~~~bash
 ./boxen tailscale serve my-project 5173

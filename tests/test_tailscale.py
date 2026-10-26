@@ -181,10 +181,21 @@ print(path)
         self.run_control("join")
         self.assertRegex(self.hostname(self.calls("up")[0]), r"^boxen-[0-9a-f]{8}$")
 
-    def test_join_prints_the_tailnet_name(self):
+    def test_join_prints_the_tailnet_name_and_the_http_preview_form(self):
+        # Userspace tailscaled forwards any tailnet connection to the same
+        # guest port, so every listening port is a preview without serve.
         result = self.run_control("join")
-        self.assertIn("test-node.tail.ts.net", result.stdout)
+        self.assertIn("Joined as test-node.tail.ts.net", result.stdout)
+        self.assertIn("http://test-node.tail.ts.net:PORT", result.stdout)
         self.assertNotIn("test-node.tail.ts.net.", result.stdout)
+
+    def test_serve_prints_each_https_route(self):
+        result = self.run_control("serve", "5173")
+        self.assertIn("https://test-node.tail.ts.net -> http://127.0.0.1:5173", result.stdout)
+        self.env["BOXEN_SERVE_PRESET"] = "supabase"
+        result = self.run_control("serve", "supabase")
+        self.assertIn("https://test-node.tail.ts.net -> http://127.0.0.1:3000", result.stdout)
+        self.assertIn("https://test-node.tail.ts.net:5433 -> http://127.0.0.1:54323", result.stdout)
 
     def test_join_takes_no_hostname(self):
         # A sandbox name on the command line would be the leak this guards against.

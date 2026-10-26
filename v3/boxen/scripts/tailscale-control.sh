@@ -71,9 +71,13 @@ serve() {
       mappings=("443:$target") ;;
   esac
   wait_for_daemon
+  [[ -n "${dns_name:-}" ]] || dns_name="$(tailscale status --self --peers=false --json 2>/dev/null |
+    jq -r '.Self.DNSName // "" | rtrimstr(".")' 2>/dev/null || true)"
   for pair in "${mappings[@]}"; do
     src="${pair%%:*}"; dst="${pair#*:}"
     tailscale serve --bg --https="$src" "http://127.0.0.1:$dst"
+    if [[ "$src" == 443 ]]; then printf 'https://%s -> http://127.0.0.1:%s\n' "$dns_name" "$dst"
+    else printf 'https://%s:%s -> http://127.0.0.1:%s\n' "$dns_name" "$src" "$dst"; fi
   done
 }
 case "${1:-}" in
@@ -97,9 +101,13 @@ case "${1:-}" in
       tailscale up --hostname="$hostname" --advertise-tags="$tag"
     fi
     verify_node
+    printf 'Joined as %s\n' "${dns_name:-$hostname}"
+    # Userspace tailscaled forwards an incoming tailnet connection to the same
+    # port on the guest's loopback, so every listening port is a preview
+    # without serve, and without a certificate.
+    printf 'Previews: http://%s:PORT for any port the sandbox listens on.\n' "${dns_name:-$hostname}"
     # tailscaled keeps serve config in its state, so the preset is applied once.
     if [[ "$preset" == supabase ]]; then serve supabase; fi
-    printf 'Joined as %s\n' "${dns_name:-$hostname}"
     tailscale status
     ;;
   serve)
