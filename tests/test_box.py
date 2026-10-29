@@ -150,6 +150,10 @@ class Box(unittest.TestCase):
         self.assertEqual(canary(), "example.org")
         self.assertEqual(canary("example.org"), "example.net")
         self.assertEqual(canary("example.org", "example.net"), "iana.org")
+        # A wildcard allows only the names under it (and, to be safe, its apex).
+        self.assertEqual(canary("'*.example.org'"), "example.net")
+        self.assertEqual(canary("'*.net'"), "example.org")
+        self.assertEqual(canary("'*.org'"), "example.net")
         self.assertEqual(canary("'*.org'", "example.net"), "")
         self.assertEqual(canary("'*'"), "")
         self.assertEqual(self.bash("""policy_canary '{"rules":[]}'""").stdout, "")

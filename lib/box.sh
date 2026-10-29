@@ -146,11 +146,13 @@ policy_inside() {
   sprite_exec "$1" -- sh -c 'f=/.sprite/policy/network.json; if [ -e "$f" ]; then cat "$f"; printf " "; fi'
 }
 # policy_canary DOCUMENT: a real host the document does not allow, or nothing
-# when it allows everything (or every candidate).
+# when it allows everything (or every candidate). *.NAME counts as allowing
+# NAME too, so a canary is never a host the policy might let through.
 policy_canary() {
   printf '%s' "$1" | jq -r '
     [.rules[]? | select(.action == "allow") | .domain // empty] as $allow
-    | def allowed($h): any($allow[]; . == "*" or . == $h or (startswith("*.") and ($h | endswith(.[1:]))));
+    | def allowed($h): any($allow[]; . as $p
+        | $p == "*" or $p == $h or (($p | startswith("*.")) and ($h == $p[2:] or ($h | endswith($p[1:])))));
     if (.rules // [] | length) == 0 then empty
     else first(("example.org", "example.net", "iana.org") | select(allowed(.) | not)) // empty end'
 }
