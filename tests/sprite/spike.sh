@@ -131,6 +131,8 @@ for profile in standard privileged; do
   on sudo -n tail -20 /tmp/dockerd.log >>"$log" 2>&1
 done
 if on sh -c 'command -v sprite-env' >>"$log" 2>&1; then
+  # Stop the loop's dockerd, or docker info passes without the service.
+  on sudo -n sh -c 'pkill dockerd; sleep 1' >>"$log" 2>&1
   on sh -c 'sprite-env services create dockerd --cmd /usr/bin/sudo --args "-n,/usr/sbin/dockerd" --duration 10s' >>"$log" 2>&1
   if on sh -c 'sleep 3; sudo -n docker info >/dev/null' >>"$log" 2>&1; then note '4 PASS dockerd runs as a sprite-env service through sudo'
   else note '4 FAIL dockerd as a sprite-env service through sudo'; fi
