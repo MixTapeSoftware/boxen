@@ -85,7 +85,8 @@ elif cmd in ("exec", "x"):
     line = " ".join(words)
     if words[:2] == ["sh", "-c"] and "/.sprite/policy/network.json" in line:
         if not env("FAKE_NO_INSIDE_POLICY"):
-            print(env("FAKE_INSIDE_POLICY") or read_policy(flag("-s"), "network"))
+            inside = env("FAKE_INSIDE_POLICY")
+            print(read_policy(flag("-s"), "network") if inside is None else inside, end=" ")
     elif words[:2] == ["sh", "-c"] and "getent hosts" in line:
         print(env("FAKE_CANARY", "blocked"))
     elif "agent-login.sh" in line and words[-1] == "status":

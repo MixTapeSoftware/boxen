@@ -141,8 +141,9 @@ policy_set() {
 policy_get() { sprite_api "$1" /policy/network </dev/null; }
 # The Sprite's own read-only copy of the policy, or nothing where it has none:
 # Fly documents /.sprite/policy/network.json, but the spike's Sprite had none.
+# A copy ends in a space, so an empty file is not taken for a missing one.
 policy_inside() {
-  sprite_exec "$1" -- sh -c 'f=/.sprite/policy/network.json; if [ -e "$f" ]; then cat "$f"; fi'
+  sprite_exec "$1" -- sh -c 'f=/.sprite/policy/network.json; if [ -e "$f" ]; then cat "$f"; printf " "; fi'
 }
 # policy_canary DOCUMENT: a real host the document does not allow, or nothing
 # when it allows everything (or every candidate).

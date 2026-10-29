@@ -113,8 +113,11 @@ class Box(unittest.TestCase):
         # Read back from the API, and from the Sprite's own copy.
         gets = [c["args"][3] for c in calls if c["args"][0] == "api" and "POST" not in c["args"]]
         self.assertIn("/policy/network", gets)
-        self.assertTrue(any(c["args"][:6] == ["exec", "-s", "me-web", "--", "sh", "-c"]
-                            and "/.sprite/policy/network.json" in c["args"][6] for c in calls))
+        reads = [c["args"][6] for c in calls if c["args"][:6] == ["exec", "-s", "me-web", "--", "sh", "-c"]
+                 and "/.sprite/policy/network.json" in c["args"][6]]
+        self.assertTrue(reads)
+        # The fake ends a copy in a space as this does, so an empty file reads as present.
+        self.assertIn('cat "$f"; printf " "', reads[0])
 
     def test_lock_down_fails_when_the_sprite_enforces_something_else(self):
         # The Sprite still unrestricted, or missing a rule: never continue.
@@ -125,6 +128,12 @@ class Box(unittest.TestCase):
             result = self.bash('lock_down me-web standard "$(policy_document example.com)"', ok=False,
                                FAKE_API_POLICY=inside)
             self.assertNotEqual(result.returncode, 0, inside)
+
+    def test_lock_down_fails_when_the_sprite_has_an_empty_copy(self):
+        # An empty file is there but holds no policy; it is not a missing one.
+        result = self.bash('lock_down me-web standard "$(policy_document example.com)"', ok=False,
+                           FAKE_INSIDE_POLICY="")
+        self.assertNotEqual(result.returncode, 0)
 
     def test_lock_down_fails_when_a_blocked_host_resolves_inside(self):
         # The API only shows Fly saved the policy; the lookup shows the Sprite enforces it.
