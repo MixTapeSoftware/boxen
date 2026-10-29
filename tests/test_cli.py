@@ -153,6 +153,22 @@ class CLI(unittest.TestCase):
         self.cli("create", "web", "file:///etc", "--dry-run", "--no-tui", ok=False)
         self.cli("create", "web", "git@gitlab.com:a/b.git", "--dry-run", "--no-tui", ok=False)
 
+    def test_a_repository_url_with_credentials_is_refused_unprinted(self):
+        for ref in ("https://ghp_s3cret@github.com/acme/web.git",
+                    "https://x-access-token:ghp_s3cret@github.com/acme/web"):
+            result = self.cli("create", "web", ref, "--dry-run", "--no-tui", ok=False)
+            self.assertIn("bxn auth github", result.stderr, ref)
+            self.assertNotIn("ghp_s3cret", result.stdout + result.stderr, ref)
+        subprocess.run(["git", "init", "-q", str(self.project)], check=True, env=self.env)
+        subprocess.run(["git", "-C", str(self.project), "remote", "add", "origin",
+                        "https://x-access-token:ghp_s3cret@github.com/acme/app.git"], check=True, env=self.env)
+        result = self.cli("create", "app", "--dry-run", "--no-tui", ok=False)
+        self.assertNotIn("ghp_s3cret", result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [])
+        # An @ past the host is part of the path, not a user name.
+        self.assertIn("Repository: https://example.com/acme/web@v1.git\n",
+                      self.cli("create", "web", "https://example.com/acme/web@v1.git", "--dry-run", "--no-tui").stdout)
+
     def test_the_current_clone_is_the_default_repository(self):
         subprocess.run(["git", "init", "-q", str(self.project)], check=True, env=self.env)
         subprocess.run(["git", "-C", str(self.project), "remote", "add", "origin", "git@github.com:acme/app.git"],
@@ -251,6 +267,18 @@ class CLI(unittest.TestCase):
         self.cli("exec", "me-web", "true")
         self.assertEqual([c["args"][2] for c in self.calls()], ["me-web", "me-web"])
 
+    def test_sprites_under_a_former_handle_stay_reachable_by_full_name(self):
+        self.sprites("me-web", "bob-web", "new-web")
+        self.cli("handle", "new")
+        self.cli("exec", "me-web", "true")
+        self.cli("exec", "web", "true")
+        self.assertEqual([c["args"][2] for c in self.calls()], ["me-web", "new-web"])
+        # A teammate's Sprite is never reached through a handle you never had.
+        self.assertIn("No Sprite named new-bob-web", self.cli("exec", "bob-web", "true", ok=False).stderr)
+        self.cli("handle", "me")
+        self.cli("handle", "new")
+        self.assertEqual((self.config / "former-handles").read_text(), "me\nnew\n")
+
     def test_mistyped_names_never_create(self):
         for args in (("nope",), ("shell", "nope"), ("run", "nope"), ("exec", "nope", "ls"), ("allow", "nope", "a.com"),
                      ("env", "nope", "X"), ("delete", "nope", "--yes"), ("checkpoint", "nope"), ("proxy", "nope", "3000")):
@@ -324,6 +352,11 @@ class CLI(unittest.TestCase):
         self.assertIn(["restore", "-s", "me-web", "v1"], [c["args"] for c in self.calls()])
         self.cli("delete", "web", "--yes")
         self.assertIn(["destroy", "--force", "me-web"], [c["args"] for c in self.calls()])
+
+    def test_delete_takes_one_sprite(self):
+        self.sprites("me-web", "me-other")
+        self.cli("delete", "web", "other", "--yes", ok=False)
+        self.assertEqual(self.calls(), [])
 
     def test_checkpoints(self):
         self.sprites("me-web")

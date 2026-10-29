@@ -11,6 +11,9 @@ DEFAULT_PLUGINS="$(awk -F'\t' 'NR > 1 && $2 == "yes" { printf "%s,", $1 }' "$PLU
 DEFAULT_PLUGINS="${DEFAULT_PLUGINS%,}"
 CONFIG_DIR="${BOXEN_CONFIG_DIR:-$HOME/.config/boxen}"
 HANDLE_FILE="$CONFIG_DIR/handle"
+# Handles this teammate used before, one per line: their Sprites keep the old
+# prefix and stay reachable by full name.
+FORMER_HANDLES_FILE="$CONFIG_DIR/former-handles"
 # Supabase's local stack: the app, the API, Studio, Mailpit and Kong.
 SUPABASE_PORTS="3000 54321 54323 54324 8000"
 
@@ -145,22 +148,42 @@ sprite_exists() {
     die 'sprite list failed. Log in with sprite login, then check bxn doctor.'
   printf '%s\n' "$names" | awk '{ print $1 }' | grep -Fxq -- "$1"
 }
+# 0 when NAME is a full Sprite name under a handle this teammate used before.
+former_handle_name() {
+  local old
+  [[ -f "$FORMER_HANDLES_FILE" ]] || return 1
+  valid_sprite_name "$1" || return 1
+  while IFS= read -r old || [[ -n "$old" ]]; do
+    valid_handle "$old" || continue
+    [[ "$1" == "$old"-* ]] && return 0
+  done < "$FORMER_HANDLES_FILE"
+  return 1
+}
 # Sets BOX_NAME for a command that takes PROJECT; never creates anything.
+# The current handle wins; a full name under a former handle is the fallback.
 need_sprite_named() {
+  local name
   need_sprite
   ensure_handle
+  case "$1" in "$HANDLE"-*) name="$1" ;; *) name="$HANDLE-$1" ;; esac
+  if valid_sprite_name "$name" && sprite_exists "$name"; then BOX_NAME="$name"; return 0; fi
+  if former_handle_name "$1" && sprite_exists "$1"; then BOX_NAME="$1"; return 0; fi
   BOX_NAME="$(sprite_name "$1")"
-  sprite_exists "$BOX_NAME" ||
-    die "No Sprite named $BOX_NAME (see bxn list). Nothing was created; use bxn create $1."
+  die "No Sprite named $BOX_NAME (see bxn list). Nothing was created; use bxn create $1."
 }
 
 # --- Repositories ------------------------------------------------------------
 
 # owner/repo, an https URL, or a GitHub SSH remote, as an https URL to clone.
+# Returns 2 for an https URL with a user or token in it, which bxn never
+# prints or passes on.
 repo_url() {
-  local ref="$1" slug='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' path
+  local ref="$1" slug='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' path authority
   case "$ref" in
-    https://*) printf '%s\n' "$ref" ;;
+    https://*)
+      authority="${ref#https://}"; authority="${authority%%[/?#]*}"
+      [[ "$authority" != *@* ]] || return 2
+      printf '%s\n' "$ref" ;;
     git@github.com:*) path="${ref#git@github.com:}"; printf 'https://github.com/%s\n' "${path%.git}.git" ;;
     ssh://git@github.com/*) path="${ref#ssh://git@github.com/}"; printf 'https://github.com/%s\n' "${path%.git}.git" ;;
     *)
@@ -315,7 +338,10 @@ create() {
       repo="$(git config --get remote.origin.url 2>/dev/null || true)"
       [[ -n "$repo" ]] || die 'Name a repository (owner/repo or an https URL), run create inside a clone, or pass --no-clone.'
     fi
-    url="$(repo_url "$repo")" || die "Not a repository bxn can clone: $repo (use owner/repo or an https URL)"
+    url="$(repo_url "$repo")" || case $? in
+      2) die 'The repository URL holds a user name or token, which bxn never prints or passes on. Name it as owner/repo; for a private repository, run bxn auth github PROJECT after create.' ;;
+      *) die "Not a repository bxn can clone: $repo (use owner/repo or an https URL)" ;;
+    esac
   fi
   ensure_handle
   BOX_NAME="$(sprite_name "$project")"
@@ -509,7 +535,11 @@ confirm() {
 cmd_delete() {
   local yes=0 project=""
   while [[ $# -gt 0 ]]; do
-    case "$1" in --yes|-y) yes=1 ;; -*) die "Unknown delete option: $1" ;; *) project="$1" ;; esac
+    case "$1" in
+      --yes|-y) yes=1 ;;
+      -*) die "Unknown delete option: $1" ;;
+      *) [[ -z "$project" ]] || die 'Usage: delete PROJECT [--yes] (one Sprite at a time)'; project="$1" ;;
+    esac
     shift
   done
   [[ -n "$project" ]] || die 'Usage: delete PROJECT [--yes]'
@@ -649,11 +679,20 @@ cmd_plugins() {
 }
 
 cmd_handle() {
+  local old
   case $# in
     0) handle ;;
     1)
       valid_handle "$1" || die "Invalid handle: $1. Use 1-20 lowercase letters, digits and hyphens."
       mkdir -p "$CONFIG_DIR"
+      # Remember the old handle so its Sprites stay reachable by full name.
+      if [[ -f "$HANDLE_FILE" ]]; then
+        old="$(head -1 "$HANDLE_FILE")"
+        if [[ "$old" != "$1" ]] && valid_handle "$old" &&
+          ! grep -Fxq -- "$old" "$FORMER_HANDLES_FILE" 2>/dev/null; then
+          printf '%s\n' "$old" >> "$FORMER_HANDLES_FILE"
+        fi
+      fi
       printf '%s\n' "$1" > "$HANDLE_FILE"
       log "Your Sprites are now named $1-PROJECT. Existing Sprites keep their names; reach them by full name."
       ;;
