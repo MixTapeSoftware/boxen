@@ -98,7 +98,10 @@ elif cmd == "api":
     name = flag("-s")
     path = [a for a in args[1:args.index("--")] if a.startswith("/")][0]
     kind = path.rsplit("/", 1)[-1]
-    if "POST" in args:
+    if path == "/":
+        print(json.dumps({"data": {"name": name, "url": f"https://{name}-ab12.sprites.app",
+                                   "url_settings": {"auth": "sprite", "private_access": "admins"}}}))
+    elif "POST" in args:
         json.loads(stdin)
         open(policy_path(name, kind), "w").write(stdin)
     elif kind == "network" and env("FAKE_API_POLICY"):

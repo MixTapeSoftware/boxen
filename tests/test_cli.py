@@ -410,7 +410,10 @@ class CLI(unittest.TestCase):
 
     def test_url_is_shown_and_never_made_public(self):
         self.sprites("me-web")
-        self.assertIn("never makes it public", self.cli("url", "web").stdout)
+        out = self.cli("url", "web").stdout
+        self.assertIn("https://me-web-ab12.sprites.app\nAccess: sprite, private access for admins\n", out)
+        self.assertIn("never makes it public", out)
+        self.assertNotIn("url", [c["args"][0] for c in self.calls()])
         for path in (ROOT / "lib").glob("*.sh"):
             self.assertNotIn("public", path.read_text().replace("never makes it public", ""), path)
 

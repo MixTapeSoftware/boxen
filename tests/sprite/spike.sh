@@ -167,7 +167,7 @@ fi
 
 # 5. URL access: what the API reports, and what a non-admin member sees.
 api -s "$name" / >>"$log" 2>&1 || api "/v1/sprites/$name" >>"$log" 2>&1 || true
-sprite url "${org[@]+"${org[@]}"}" -s "$name" >>"$log" 2>&1 || true
+sprite info "${org[@]+"${org[@]}"}" -s "$name" >>"$log" 2>&1 || true
 note "5 MANUAL have a non-admin org member open the URL in the log while $name exists; record whether they reach it"
 
 # 6. GitHub Connector through the gateway.
