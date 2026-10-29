@@ -438,3 +438,11 @@ resolve; the Sprite cannot write its policy file), 7 and 10. Failed:
   docker plugin asks for `privileged`, so this is recorded, not chased.
 Open: 3 and 4 need a rerun to confirm these fixes; 5 and 8 are manual; 6
 was skipped.
+
+2026-10-29, second spike run (PR #31's spike). Every check the fixes target
+passed: 9 (a GET prints bare JSON on stdout), 3 (the policy reads back from
+the API; the Sprite again had no inside copy; `getent` fails for a blocked
+host and resolves an allowed one, so lock-down's probe holds), and 4 under
+`privileged` (`docker run hello-world`, and dockerd as a `sprite-env`
+service). Docker under `standard` still fails; the docker plugin asks for
+`privileged`. Still open: 5 and 8 (manual) and 6 (skipped).
