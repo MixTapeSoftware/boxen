@@ -222,6 +222,25 @@ class CLI(unittest.TestCase):
         self.assertIn("bxn auth github web", result.stderr)
         self.assertIn("is ready", result.stdout)
 
+    def test_a_failed_clone_points_at_bxn_clone(self):
+        self.env["FAKE_FAIL"] = "git clone"
+        result = self.create()
+        self.assertIn("bxn clone web https://github.com/acme/web.git", result.stderr)
+
+    def test_clone_loads_the_environment_and_refuses_a_full_workspace(self):
+        self.sprites("me-web")
+        self.cli("clone", "web", "acme/api")
+        script, url = self.execs()[-1][2], self.execs()[-1][-1]
+        self.assertEqual(url, "https://github.com/acme/api.git")
+        self.assertIn(". /etc/boxen/env.sh", script)
+        self.assertIn("/workspace is not empty", script)
+        self.assertLess(script.index("not empty"), script.index("git clone"))
+        self.env["FAKE_FAIL"] = "git clone"
+        self.assertIn("bxn auth github web", self.cli("clone", "web", "acme/api", ok=False).stderr)
+        del self.env["FAKE_FAIL"]
+        self.cli("clone", "web", "https://user:tok@github.com/a/b.git", ok=False)
+        self.cli("clone", "nope", "acme/api", ok=False)
+
     def test_git_identity_is_forwarded(self):
         (self.directory / "gitconfig").write_text("[user]\n\tname = Ada L\n\temail = ada@example.com\n")
         self.create()

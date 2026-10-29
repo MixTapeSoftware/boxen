@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -182,6 +183,33 @@ class Provisioning(ScriptCase):
         self.run_script("gh-auth.sh")
         calls = (self.directory / "calls").read_text()
         self.assertIn("credential.https://github.com.helper !gh auth git-credential", calls)
+
+
+class ShellHelpers(ScriptCase):
+    def gdiff(self, shell, *args):
+        log = self.directory / "calls"
+        self.fake("git", f'printf "git %s\\n" "$*" >> {log}; echo a.txt')
+        # fzf records its preview command, which fzf would run through a shell.
+        self.fake("fzf", f'while [ $# -gt 0 ]; do [ "$1" = --preview ] && printf "preview %s\\n" "$2" >> {log}; shift; done; cat >/dev/null')
+        quoted = " ".join("'" + a.replace("'", "'\\''") + "'" for a in args)
+        script = f'source {GUEST / "fzf-shell.sh"}; gdiff {quoted}'
+        env = dict(os.environ, PATH=f"{self.bin}{os.pathsep}{os.environ['PATH']}")
+        result = subprocess.run([shell, "-c", script], env=env, capture_output=True, text=True, timeout=10)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        # git and fzf run side by side in a pipe, so either may log first.
+        lines = sorted(log.read_text().splitlines())
+        log.unlink()
+        return lines
+
+    def test_gdiff_puts_options_before_paths_and_previews_with_options_only(self):
+        shells = ["bash"] + (["zsh"] if shutil.which("zsh") else [])
+        for shell in shells:
+            with self.subTest(shell=shell):
+                self.assertEqual(self.gdiff(shell, "--cached", "--", "src dir"),
+                                 ["git diff --name-only --cached -- src dir",
+                                  "preview git diff --cached --color=always -- {}"])
+                self.assertEqual(self.gdiff(shell, "main"),
+                                 ["git diff --name-only main", "preview git diff main --color=always -- {}"])
 
 
 class Agents(ScriptCase):

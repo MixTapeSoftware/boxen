@@ -71,6 +71,7 @@ bxn PROJECT                                  Open zsh in /workspace
 bxn shell PROJECT [COMMAND...]               (also: -s)
 bxn run PROJECT [-- ARGS...]                 Start the agent
 bxn exec PROJECT COMMAND [ARGS...]           Run a command
+bxn clone PROJECT [REPO]                     Clone into an empty /workspace
 bxn list [--all]                             Your Sprites, or the whole org's (also: ls)
 bxn delete PROJECT [--yes]                   (also: destroy, -d)
 bxn allow PROJECT HOST...                    Allow more hosts
@@ -190,6 +191,34 @@ repo_url() {
       [[ "$ref" =~ $slug ]] || return 1
       printf 'https://github.com/%s.git\n' "${ref%.git}" ;;
   esac
+}
+
+# clone_url [REPO]: REPO, or else the current directory's origin, as the https
+# URL to clone. Exits with the reason when there is none.
+clone_url() {
+  local repo="${1:-}" url
+  if [[ -z "$repo" ]]; then
+    repo="$(git config --get remote.origin.url 2>/dev/null || true)"
+    [[ -n "$repo" ]] || die 'Name a repository (owner/repo or an https URL), run bxn inside a clone, or pass --no-clone.'
+  fi
+  url="$(repo_url "$repo")" || case $? in
+    2) die 'The repository URL holds a user name or token, which bxn never prints or passes on. Name it as owner/repo; for a private repository, store a token with bxn auth github PROJECT.' ;;
+    *) die "Not a repository bxn can clone: $repo (use owner/repo or an https URL)" ;;
+  esac
+  printf '%s\n' "$url"
+}
+# clone_workspace URL: clone into the Sprite's /workspace with its
+# environment loaded, so Git reaches GH_TOKEN through gh. Refuses a
+# /workspace that already holds files, such as a clone that stopped partway.
+clone_workspace() {
+  box_user bash -c '
+    . /etc/boxen/env.sh
+    dir="$HOME/workspace"
+    if [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
+      echo "boxen: /workspace is not empty; empty it, then clone again" >&2
+      exit 3
+    fi
+    git clone -- "$1" "$dir"' bash "$1" </dev/null
 }
 
 # --- Agents ------------------------------------------------------------------
@@ -334,14 +363,7 @@ create() {
   if [[ "$no_clone" == 1 ]]; then
     [[ -z "$repo" ]] || die 'Pass a repository or --no-clone, not both'
   else
-    if [[ -z "$repo" ]]; then
-      repo="$(git config --get remote.origin.url 2>/dev/null || true)"
-      [[ -n "$repo" ]] || die 'Name a repository (owner/repo or an https URL), run create inside a clone, or pass --no-clone.'
-    fi
-    url="$(repo_url "$repo")" || case $? in
-      2) die 'The repository URL holds a user name or token, which bxn never prints or passes on. Name it as owner/repo; for a private repository, run bxn auth github PROJECT after create.' ;;
-      *) die "Not a repository bxn can clone: $repo (use owner/repo or an https URL)" ;;
-    esac
+    url="$(clone_url "$repo")" || exit 1
   fi
   ensure_handle
   BOX_NAME="$(sprite_name "$project")"
@@ -461,8 +483,8 @@ create() {
   gh_token="" op_token="" xai_key=""
   if [[ -n "$url" ]]; then
     log "Cloning $url into /workspace"
-    box_user bash -c '. /etc/boxen/env.sh; git clone -- "$1" "$HOME/workspace"' bash "$url" </dev/null ||
-      warn "Cloning $url failed. A private repository needs a GitHub token (bxn auth github $project); then: bxn exec $project git clone $url /workspace"
+    clone_workspace "$url" ||
+      warn "Cloning $url failed. A private repository needs a GitHub token: bxn auth github $project. Then retry with: bxn clone $project $url"
   fi
   trap - INT TERM
   # Opening the shell or agent below makes the sign-in offer itself.
@@ -511,6 +533,16 @@ cmd_exec() {
   need_sprite_named "$1"; shift
   if terminal; then tty=(--tty); fi
   sprite_exec "$BOX_NAME" ${tty[@]+"${tty[@]}"} -- "$@"
+}
+
+cmd_clone() {
+  local url
+  [[ $# == 1 || $# == 2 ]] || die 'Usage: clone PROJECT [REPO]'
+  url="$(clone_url "${2:-}")" || exit 1
+  need_sprite_named "$1"
+  log "Cloning $url into /workspace"
+  clone_workspace "$url" ||
+    die "Cloning $url failed. A private repository needs a GitHub token: bxn auth github $1"
 }
 
 cmd_list() {
@@ -725,6 +757,7 @@ main() {
     shell|-s) cmd_shell "$@" ;;
     run) cmd_run "$@" ;;
     exec) cmd_exec "$@" ;;
+    clone) cmd_clone "$@" ;;
     list|ls) cmd_list "$@" ;;
     delete|destroy|-d) cmd_delete "$@" ;;
     allow) cmd_allow "$@" ;;

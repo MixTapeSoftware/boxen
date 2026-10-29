@@ -97,7 +97,7 @@ does itself.
 - **Sleep.** A Sprite pauses about 30 s after activity stops and wakes on the
   next command in well under a second. An open TTY session counts as
   activity, so an agent session stays up. Processes die on sleep; files
-  persist. Nothing is billed while asleep.
+  persist. Compute is not billed while asleep; storage is.
 
 Costs, from Fly's pricing page: $0.07 per CPU-hour and $0.04375 per GB-hour of
 RAM, billed per second of wall time while awake, plus $0.50/GB-month hot and

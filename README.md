@@ -49,6 +49,7 @@ including your Claude login and tokens. Treat a Sprite like a shared server.
 | `PROJECT`, `shell PROJECT [COMMAND...]` | zsh in `/workspace`, or run a command. Also `-s` |
 | `run PROJECT [-- ARGS...]` | Start the agent in `/workspace` |
 | `exec PROJECT COMMAND [ARGS...]` | Run a command as the Sprite's user |
+| `clone PROJECT [REPO]` | Clone into an empty `/workspace`, with the Sprite's GitHub token; for a Sprite made with `--no-clone`, or after a failed clone |
 | `list [--all]` | Your Sprites and whether each is cold, warm or running; `--all` shows the org's. Also `ls` |
 | `delete PROJECT [--yes]` | Destroy it, checkpoints included. Also `destroy`, `-d` |
 | `allow PROJECT HOST...` | Allow more hosts; see [Network](#network-and-privileges) |
@@ -93,7 +94,9 @@ bxn create web --dry-run              # the plan, without creating anything
    then installs each plugin in order.
 6. Copies your Git name and email, stores the keys you pasted, and clones the
    repository into `/workspace`. A key that fails to store or a clone that
-   fails only warns, with the command to retry, and `create` goes on.
+   fails only warns, with the command to retry, and `create` goes on. Retry
+   a clone with `bxn clone PROJECT`, after `bxn auth github PROJECT` for a
+   private repository.
 7. Opens a shell, or the agent; `--detach` skips this.
 
 In a terminal, a picker chooses one agent and the plugins; arrow keys or j/k
