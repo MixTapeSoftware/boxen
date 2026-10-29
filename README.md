@@ -9,7 +9,7 @@ host.
 A Sprite is a Firecracker microVM running Ubuntu, with 8 vCPUs and a 100 GB
 disk, as the user `sprite`. It sleeps about 30 seconds after the last session
 closes and wakes on the next command. Files persist across sleep; running
-processes do not. Nothing is billed while it sleeps.
+processes do not. Compute is not billed while it sleeps; storage is.
 
 The launcher is Bash 3.2 with standard Unix tools and jq. Python is needed
 only for the development tests.
@@ -78,7 +78,8 @@ bxn create web --plugins gh-auth,just --no-tui --gh-token-stdin < token.txt
 bxn create web --dry-run              # the plan, without creating anything
 ~~~
 
-`create` runs these steps, and stops at the first that fails:
+`create` runs these steps, and stops at the first that fails, except as step
+6 says:
 
 1. Checks that the `sprite` CLI is logged in and the name is free.
 2. Runs `sprite create --skip-console --label boxen HANDLE-PROJECT`.
@@ -91,7 +92,8 @@ bxn create web --dry-run              # the plan, without creating anything
 5. Checks the agent (Sprites ship Claude Code and Codex; Grok is installed),
    then installs each plugin in order.
 6. Copies your Git name and email, stores the keys you pasted, and clones the
-   repository into `/workspace`.
+   repository into `/workspace`. A key that fails to store or a clone that
+   fails only warns, with the command to retry, and `create` goes on.
 7. Opens a shell, or the agent; `--detach` skips this.
 
 In a terminal, a picker chooses one agent and the plugins; arrow keys or j/k
@@ -99,9 +101,10 @@ move, Space chooses, Enter creates and q quits. If a later step fails, `create`
 offers to destroy the half-made Sprite. When the organization is at its limit
 of awake Sprites, `create` says so.
 
-Nothing is uploaded from your machine except Boxen's own scripts: the
-repository is cloned inside the Sprite, so a private one needs the GitHub
-token. SSH remotes on GitHub become https URLs.
+No project files are copied from your machine. Boxen sends its own scripts,
+your Git name and email, and the keys you paste; the repository is cloned
+inside the Sprite, so a private one needs the GitHub token. SSH remotes on
+GitHub become https URLs.
 
 ## Plugins
 
