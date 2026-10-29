@@ -1,674 +1,253 @@
 # Boxen
 
-Development sandboxes for coding agents on **Docker Sandboxes**, with a shell
-by default and optional Claude, Codex or Grok. Docker owns the VM, network
-policy, credential proxy and private Docker Engine. This
-project supplies the `bxn` launcher, an image with every development tool baked
-in, a few option kits, shell configuration and Tailscale integration.
+Development boxes for coding agents on **Fly.io Sprites**. One command
+creates a Sprite for a project, locks down its network, installs the tools
+you pick, clones the repository and drops you into a shell or your coding
+agent. Fly owns the machine; nobody on the team runs or administers a Linux
+host.
 
-Requires SBX **0.47.0 or newer**, Docker sign-in, Docker itself, running (sbx
-builds the [v3 kits](https://docs.docker.com/ai/sandboxes/customize/) with
-it), and a host supported by
-[Docker Sandboxes](https://docs.docker.com/ai/sandboxes/install/). Sandboxes on
-Linux need working KVM access; running inside a VM requires nested
-virtualization. The host launcher uses Bash 3.2 and standard Unix tools;
-`kill-all` and `update-all` also need jq. Python is only needed for development
-tests. Kits live in `v3/` and are not published to a registry.
+A Sprite is a Firecracker microVM running Ubuntu, with 8 vCPUs and a 100 GB
+disk, as the user `sprite`. It sleeps about 30 seconds after the last session
+closes and wakes on the next command. Files persist across sleep; running
+processes do not. Nothing is billed while it sleeps.
 
-## Why sbx
+The launcher is Bash 3.2 with standard Unix tools and jq. Python is needed
+only for the development tests.
 
-Docker Sandboxes (`sbx`) runs each sandbox in its own microVM by default. A
-microVM starts quickly, like a container, but gives the agent its own kernel
-instead of sharing the host's, which makes it a stronger boundary than a
-regular container. sbx also has kits, a kind of plugin that adds tools, setup
-steps, network rules and credentials to a sandbox.
+## For teammates
 
-Boxen is a thin wrapper around sbx. It keeps one image with every tool baked
-in, and a few small option kits, in this repository, so every new sandbox
-starts from the same setup instead of being configured by hand.
-
-## Start
+You need a Fly.io account in the team's organization, the
+[sprite CLI](https://docs.fly.io/sprites/cli/installation), jq, and a GitHub
+token for private repositories.
 
 ~~~bash
-sbx login
-./install                 # Links bxn into ~/.local/bin; offers Chadmux
+sprite login                  # opens a browser for your Fly account
+git clone https://github.com/MixTapeSoftware/boxen.git && boxen/install
 bxn doctor
 
-# Choose an agent and kits, then copy the current directory into a new sandbox.
-cd /path/to/project
-bxn create my-project
-bxn my-project     # Open a shell
-
-# Copy another directory, or start empty.
-bxn create my-project -p /path/to/project
-bxn create scratch --no-copy
-
-# An agent with the same tools; bxn run starts it.
-bxn create codex-project --agent codex
-bxn run codex-project
+cd ~/code/my-app              # a clone, so bxn knows the repository
+bxn create my-app             # pick an agent and tools, paste a GitHub token
 ~~~
 
-The first `create` builds the tools image, which takes 15 to 30 minutes (Chrome
-and nvChad take the longest); sbx caches it, so later sandboxes start in
-moments, and changing a runtime script rebuilds only the last step.
+`create` names the Sprite after your handle, which it asks for once (for
+example `ada-my-app`). It ends in a shell, or in your agent if you chose one.
+Claude Code asks you to sign in with `/login` the first time: use your own
+subscription. Codex offers a device sign-in.
 
-Creation stays detached so preview servers continue after closing your terminals.
-Stop with `stop`; reconnect with `shell` or `run`. Files persist across a stop
-and resume. Commands that take a name check that the sandbox exists first, so a
-mistyped name never creates a sandbox; only `create` does.
+Later, `bxn my-app` opens a shell, `bxn run my-app` starts the agent, and
+`bxn list` shows your Sprites. To see a dev server, run
+`bxn proxy my-app 3000` and open `http://localhost:3000`.
 
-Each sandbox gets 4 CPUs (or fewer on a smaller host) and 4 GiB unless you
-pass `--cpus` and `--memory`, or set `BOXEN_CPUS` and `BOXEN_MEMORY`. Every
-sandbox is a microVM that holds its memory. On Linux, `create` refuses to start
-one when available memory is below its size plus 1 GiB; a concurrent test
-microVM once exhausted the validation host. `BOXEN_SKIP_MEMORY_CHECK=1`
-skips the check.
-
-On first creation, SBX may ask for a network preset and approval of declared
-credential destinations. Balanced is its default-deny development preset. The
-kits add their own download/API hosts; `--open-network` passes
-`--allow-network '**'` for a sandbox that should reach every host, and the
-account's or host's denies still win. A destination binding does not provide a
-credential. Configure credential sources separately.
+**Anyone in the Fly organization can open any Sprite and read what is in it**,
+including your Claude login and tokens. Treat a Sprite like a shared server.
 
 ## Commands
 
-| Command | Short form | What it does |
+| Command | What it does |
+|---|---|
+| `create PROJECT [REPO]` | Create, lock down, provision, clone, open; see below. Also `init`, `-i` |
+| `PROJECT`, `shell PROJECT [COMMAND...]` | zsh in `/workspace`, or run a command. Also `-s` |
+| `run PROJECT [-- ARGS...]` | Start the agent in `/workspace` |
+| `exec PROJECT COMMAND [ARGS...]` | Run a command as the Sprite's user |
+| `list [--all]` | Your Sprites and whether each is cold, warm or running; `--all` shows the org's. Also `ls` |
+| `delete PROJECT [--yes]` | Destroy it, checkpoints included. Also `destroy`, `-d` |
+| `allow PROJECT HOST...` | Allow more hosts; see [Network](#network-and-privileges) |
+| `policy PROJECT` | Show the network policy and privileges profile |
+| `env PROJECT VAR` | Set a variable; the value comes from a hidden prompt or stdin. Also `-e` |
+| `auth github PROJECT` | Store a GitHub token, from a prompt or stdin |
+| `checkpoint PROJECT [COMMENT]`, `checkpoints PROJECT` | Snapshot the whole filesystem; list snapshots |
+| `restore PROJECT ID [--yes]` | Roll back to a snapshot, discarding everything since |
+| `proxy PROJECT PORT\|LOCAL:REMOTE...\|supabase` | Forward ports to `localhost` on this machine |
+| `url PROJECT` | The Sprite's private URL |
+| `check PROJECT` | Check the base tools and every chosen plugin |
+| `plugins`, `handle [NEW]`, `doctor` | List plugins; show or change your handle; check prerequisites |
+
+`PROJECT` is a Sprite's name without your handle; the full name works too.
+Commands that take one check that the Sprite exists first, so a typo never
+creates anything; only `create` does. Set `BOXEN_SPRITE_ORG` when you belong
+to more than one Fly organization.
+
+## Creating a Sprite
+
+~~~bash
+bxn create web                        # the current clone's origin
+bxn create web acme/web               # or owner/repo, or an https URL
+bxn create scratch --no-clone         # an empty /workspace
+bxn create web --claude --docker      # flags preselect in the picker
+bxn create web --plugins gh-auth,just --no-tui --gh-token-stdin < token.txt
+bxn create web --dry-run              # the plan, without creating anything
+~~~
+
+`create` runs these steps, and stops at the first that fails:
+
+1. Checks that the `sprite` CLI is logged in and the name is free.
+2. Runs `sprite create --skip-console --label boxen HANDLE-PROJECT`.
+3. **Locks it down** before anything runs in it: posts the network policy and
+   the privileges profile, then reads the policy back from inside the Sprite
+   and the profile from the API. A Sprite that does not enforce what was set
+   is destroyed.
+4. Installs the base: build tools and libraries, database clients, zsh with
+   Oh My Zsh, tmux, ripgrep, mise with Node 22 and Go, and the GitHub CLI.
+5. Checks the agent (Sprites ship Claude Code and Codex; Grok is installed),
+   then installs each plugin in order.
+6. Copies your Git name and email, stores the keys you pasted, and clones the
+   repository into `/workspace`.
+7. Opens a shell, or the agent; `--detach` skips this.
+
+In a terminal, a picker chooses one agent and the plugins; arrow keys or j/k
+move, Space chooses, Enter creates and q quits. If a later step fails, `create`
+offers to destroy the half-made Sprite. When the organization is at its limit
+of awake Sprites, `create` says so.
+
+Nothing is uploaded from your machine except Boxen's own scripts: the
+repository is cloned inside the Sprite, so a private one needs the GitHub
+token. SSH remotes on GitHub become https URLs.
+
+## Plugins
+
+`bxn plugins` lists them. The ones marked default are preselected.
+
+| Plugin | Default | What it adds |
 |---|---|---|
-| `create NAME [DIRECTORY]` | `init`, `-i` | Create a sandbox; see below |
-| `NAME`, `shell [--with-sudo] NAME [COMMAND...]` | `-s` | Open zsh, or run a command |
-| `run NAME [-- ARGS...]` | | Attach to the sandbox's agent |
-| `exec NAME COMMAND [ARGS...]` | | Run a command |
-| `net NAME [-b ADDR\|-H HOST] [-l] [-r PORT] [PORT\|HOST:SANDBOX ...]` | `-n` | Publish ports on the host through `sbx ports`. `-r all` is not supported |
-| `env NAME VAR` | `-e` | Set a variable; prompts without echoing |
-| `stop NAME`, `kill-all` | `kill`, `-k`, `-ka` | Stop one sandbox, or every running boxen sandbox |
-| `delete NAME` | `-d` | Remove it, after sbx asks to confirm |
-| `update NAME`, `update-all`, `cron install [HOUR]\|remove\|status` | `-u`, `-ua` | `apt-get upgrade` as root, on demand or nightly |
-| `status [--once]`, `ls` | | `sbx tui`, or the sandbox list once |
+| gh-auth | yes | A fine-grained GitHub token for gh and Git, asked for at create |
+| gh-stack | yes | GitHub's [gh stack](https://github.com/github/gh-stack) v0.2.1 and its agent skill |
+| skills | yes | Every skill from [MixTapeSoftware/skills](https://github.com/MixTapeSoftware/skills), such as botfight, for Claude Code, Codex and Grok |
+| fzf-bat, just, glow | yes | fzf 0.74.5 and bat 0.26.1 with the `f` and `gdiff` helpers, just 1.58.0, Glow 3.0.0 |
+| mermaid-ascii, overmind | | mermaid-ascii 1.4.0; Overmind 2.5.1 |
+| rtkplus | | RTK 0.51.0 and its hook for Claude or Codex |
+| 1pass | | 1Password CLI 2.30.0; asks for a service account token |
+| cubic | | cubic, through the vendor's installer |
+| chromium | | Playwright 1.61.1 with Chromium, and a matched Chrome for Testing and ChromeDriver (155.0.8059.39) |
+| nvchad | | chadfennell/nvChad on Neovim v0.12.6, with tree-sitter parsers and six Mason language servers. The slowest |
+| docker | | Docker Engine, Compose and Buildx, with dockerd as a Sprite service. Experimental |
+| supabase-serve | | Supabase's hosts and `bxn proxy PROJECT supabase`; adds docker |
 
-`auth`, `tailscale`, `check`, `validate` and `doctor` are described below, and
-`bxn --help` lists every option.
+A plugin is a small file in `plugins/` that names the hosts it needs and the
+privileges profile it asks for, and runs scripts from `guest/` in the Sprite.
+Pinned downloads (mise, gh, gh stack, mermaid-ascii, 1Password, Neovim,
+Chrome for Testing) are checked against SHA-256 sums. The Oh My Zsh clones,
+the skills repository, `node@22`, and the cubic, RTK, Grok and Claude
+installers float.
 
-`bxn status` opens sbx's dashboard, which `sbx tui` (or plain `sbx`) also
-opens. It shows each sandbox's status, CPU and memory, with keys to start or
-stop one (`s`), attach to its agent (Enter), open a shell (`x`) or remove it
-(`r`). Tab switches to the network panel, which logs outbound connections and
-lets you allow or block hosts. `?` lists every shortcut.
+## Network and privileges
 
-## Choosing kits
+A Sprite starts able to reach any host. Boxen sets its policy from outside
+before anything runs in it, and the agent inside cannot change it: the
+Sprite holds only a read-only copy at `/.sprite/policy/network.json`.
 
-In a terminal, `create` opens a selector: choose one agent and any of five
-options. Arrow keys or j/k move, Space chooses, Enter creates, and q quits
-without creating anything. No option starts selected, and these flags pre-select
-some: `--agent NAME`, `--claude`, `--codex`, `--grok`, `--tailscale`,
-`--supabase-serve`, `--gh-token`, `--1pass`, `--rtkplus`.
-
-`--plugins` chooses without the selector, as do `--no-tui` and non-interactive
-runs:
-
-~~~bash
-bxn create web --tailscale --supabase-serve --gh-token --no-tui
-bxn create small --plugins gh-auth,rtkplus --claude
-bxn create everything --plugins all
-bxn create base --plugins none
-bxn create preview --dry-run
-~~~
-
-Every tool is in every sandbox, so tools are not a choice: see [Kits](#kits).
-Supabase Serve automatically selects Tailscale. RTK's hooks apply to Claude and
-Codex; with the shell or Grok, `rtkplus` is left out and `create` says so. Each
-sandbox runs one agent; create a second sandbox for another agent.
-
-## Workspace behavior
-
-| Option | Behavior |
-|---|---|
-| Default | Copies the current directory (or `-p PATH`) once into `/workspace`, including uncommitted files and `.git`. No host bind mount. |
-| `--no-copy` | Empty `/workspace`. Clone or create a repository inside it. |
-| `--mode mount` | Explicit read/write host workspace mount. |
-| `--mode clone` | SBX's private Git clone workflow; requires a host Git worktree. |
-
-A copied or empty workspace is ordinary sandbox disk at `/home/agent/workspace`,
-linked from `/workspace` and owned by the agent. It survives a stop and resume,
-like everything else in the sandbox, including packages from `update`; deleting
-the sandbox deletes it.
-
-Copy mode has no automatic synchronization back to the host: commit and push,
-or use `sbx cp`, to bring work out. The launcher refuses to copy your home directory or `/`.
-When the directory holds `.env` files, it lists them and asks before copying
-(or mounting); `--ack-env` skips the question. From macOS, the copy omits
-AppleDouble `._` files and extended attributes.
-
-The copy skips folders the sandbox rebuilds, which are usually most of its
-bytes and are often built for the host's platform rather than Linux:
-`node_modules`, Python virtualenvs and caches, framework caches such as `.next`,
-and `deps`, `_build` or `target` beside `mix.exs` or `Cargo.toml`. Run your
-install step in the sandbox afterwards, or pass `--copy-all` to copy them anyway.
-`create` and `--dry-run` print the copy's size and the skipped folders; with
-`pv` installed, `create` also shows a progress bar.
-
-A large copy takes a while because every byte crosses into the sandbox's
-microVM and is written to its own disk. `--mode mount` avoids the
-copy, at the cost of sharing your files read-write.
-
-### Host mounts
-
-By default nothing from the host is mounted into a sandbox, whichever agent it
-runs: the workspace is copied, and the sbx shared skills store is off (sbx's
-own default links it in read-only). Opt in per sandbox:
-
-| Option | Shares with the host |
-|---|---|
-| `--mode mount` | The workspace directory, read-write |
-| `--mode clone` | The workspace repository, read-only, plus a Git remote back to the host |
-| `--skills readonly` / `--skills readwrite` | The sbx skills store |
-
-`--dry-run` lists the host mounts a create would add. `sbx mount` can add one
-to a running sandbox later. sbx's `ssh.agentForwardingEnabled` setting lets
-SSH clients forward an SSH agent into sandboxes; boxen connects with
-`sbx exec` instead. To rule it out entirely:
-`sbx settings set ssh.agentForwardingEnabled false`.
-
-The launcher forwards host Git name/email when configured. It does not copy Git
-credentials, agent login files, SSH private keys, or your host home directory.
-
-## Sudo
-
-Docker's images give the agent user standing passwordless sudo. On a local
-sandbox, boxen removes it when the sandbox is created. For root, open a session
-with `./bxn shell --with-sudo NAME`: it adds a `_sudo` group to that session
-only. Agents are told to ask you instead of using sudo.
-
-## Kits
-
-`v3/boxen` is the workload: one image, built `FROM` Docker's
-`docker/sandbox-templates:shell-docker` template (Ubuntu 26.04), pinned by
-digest. Docker's own Claude and Codex images are built on the same template,
-which matters for apt: an agent mixin changes files only on top of a base it
-expects, and a different base would leave its packages unknown to dpkg. sbx
-builds the image on the first `create` and caches it. It has:
-
-| Tools | Details |
-|---|---|
-| Docker | Native private Docker Engine and Compose |
-| Shell and languages | mise, Node 22, Go, zsh with Oh My Zsh, the dpoggi theme and autosuggestions; GitHub CLI, database clients and common build dependencies. mise trusts config files anywhere under `/workspace` |
-| Chromium/Playwright | Playwright 1.61.1 with Chromium, plus a **matched** Chrome for Testing/ChromeDriver pair (155.0.8059.39) for Wallaby |
-| fzf, bat, just, Glow | mise-managed (fzf 0.74.5, bat 0.26.1, just 1.58.0, Glow 3.0.0), with the f and gdiff shell helpers |
-| mermaid-ascii, Overmind | mermaid-ascii 1.4.0; Overmind 2.5.1 with tmux |
-| nvChad | chadfennell/nvChad, Neovim v0.12.6, tree-sitter parsers and six Mason language servers |
-| cubic | The vendor's user-level installer; log in on first use |
-| RTK | 0.51.0; the `rtkplus` option adds its hook for Claude or Codex |
-| Tailscale, 1Password | Tailscale 1.104.1 and op 2.30.0; their options turn them on |
-| gh stack | GitHub's [gh stack](https://github.com/github/gh-stack) extension v0.2.1 for stacked pull requests, pinned so `gh extension upgrade` leaves it alone, with its agent skill from the same release |
-| Skills | Every skill from [MixTapeSoftware/skills](https://github.com/MixTapeSoftware/skills), such as botfight, for Claude Code (in `/etc/claude-code/.claude/skills/`) and for Codex and Grok (in `~/.agents/skills/`) |
-
-Agents are Docker's agent mixins, pinned by tag and digest in `lib/pins.sh`:
-`docker/sbx-kit-claude-mixin`, `-codex-mixin` and `-grok-mixin`, at the newest
-versions sbx v0.47.0 reads. The workload's entry script starts the agent
-`BOXEN_AGENT` names, or a login shell. Boxen's options are mixins beside the
-workload, each a single YAML file that runs scripts the image already has:
-
-| Mixin | What it adds |
-|---|---|
-| `v3/workspace` | The agent-owned workspace and the `/workspace` link (copied and empty workspaces) |
-| `v3/tailscale` | A userspace Tailscale node per sandbox, under a random name; with Supabase Serve, the seven routes |
-| `v3/gh-auth` | A proxy-managed GitHub token, and Git's credential helper through gh |
-| `v3/1pass` | 1Password's hosts for the baked op CLI |
-| `v3/rtkplus-claude`, `v3/rtkplus-codex` | RTK's hook for that agent |
-| `v3/claude-token` | Per-sandbox Claude subscription token: Bearer injection and the hook that points Claude Code at it; always on Claude sandboxes |
-
-Setup the agent needs on its first command runs as an install hook, once, at
-create: removing local sudo, the environment line, the workspace, gh's
-credential helper, the RTK hooks and the serve preset. Startup hooks are for
-daemons and repair: Tailscale's daemon, and the environment line if sbx rewrote
-the file. No Boxen kit declares a volume. Guest scripts live at
-`/usr/local/share/boxen/`.
-
-Downloads of pinned binaries (mise, Tailscale, the 1Password CLI, Chrome for
-Testing, Neovim, mermaid-ascii, gh stack) are checked against SHA-256 sums, and
-gh stack's skill comes from the commit its release was built from. The
-boundary is stated, not implied: `node@22`, the Oh My Zsh and autosuggestions
-clones, the skills repository's skills, and the cubic, Grok and RTK vendor
-installers float, so a cold build is repeatable for the checksummed artifacts,
-not byte for byte.
-
-The workload's network rules are the union of what Boxen's tools need at
-runtime (GitHub, Ubuntu, Node, Go, Mason, Chrome for Testing and cubic among
-them). They include the CloudFront hosts that serve `public.ecr.aws` image
-layers, such as Supabase's local stack: sbx's Balanced preset allows the
-registry but not its CDN, so those pulls fail without them; `deno.land`, which
-the Supabase CLI's edge runtime imports from when it starts; and Supabase's
-hosted MCP server at `mcp.supabase.com`. Tailscale's, 1Password's and
-`gist.github.com` stay with their mixins. When a tool fails to reach a host, the
-network panel in `sbx tui` (or `sbx policy log`) shows what was blocked; allow
-it there or with `sbx policy allow network HOST`. A blocked host can also
-surface as a DNS error, since sandbox DNS answers only allowed hosts.
-
-A sandbox made by hand looks like this:
+The policy is `policies/sprite-baseline.json`, which includes Fly's
+`defaults` (GitHub, npm, PyPI, Docker Hub and the major AI APIs) and the
+hosts base provisioning needs, plus the hosts the agent and each chosen
+plugin declare. Those stay allowed, so the tools keep working. A blocked host
+fails fast with a DNS refusal. Connections to raw IP addresses and private
+ranges are refused.
 
 ~~~bash
-sbx create --name try-v3 --cpus 4 --memory 4g --env BOXEN_AGENT=claude \
-  --kit docker.io/docker/sbx-kit-claude-mixin:2.1.267 --kit ./v3/workspace ./v3/boxen
+bxn create web --allow api.example.com --allow '*.example.org'
+bxn allow web registry.example.com    # later: reads, merges and posts the whole policy
+bxn policy web
+bxn create lab --allow-all            # no policy at all; it warns
 ~~~
 
-Add `--kit ./v3/<mixin>` for each option you want. With `v3/tailscale`,
-`--env BOXEN_SERVE_PRESET=supabase` picks the Supabase routes. Host kit paths
-are calculated from the launcher's location, so the checkout can live anywhere.
-
-## Docker Cloud
-
-Boxen makes local sandboxes only. `create --cloud`, the SSH-tunnel previews,
-the TTL handling and the cloud host gates were removed on 2026-10-24; the last
-commit with them is `b795c5c`. They are parked, not abandoned. A cloud create
-uploads the locally assembled kit set, about 1.2 GiB, as a template under a
-short-lived credential that an ordinary uplink outruns, and the fallback upload
-times out. Cloud templates belong to one account, and the cloud cannot pull
-private registry images, so the only way to share an image with a team is to
-publish it. Cloud comes back when Docker refreshes the upload credential, lets
-the cloud pull private kits, or shares templates across an organization.
-
-## Host setup and Chadmux
-
-`./install` links `bxn` into `~/.local/bin`; the launcher follows the link
-back to this checkout's `v3/` kits. It then offers Chadmux, Chad's opinionated tmux
-config, with TPM plugins for the Dracula theme, tmux-yank and
-vim-tmux-navigator. `./install --chadmux` installs it without asking, and
-`--no-chadmux` skips the question.
-
-Chadmux installs only on a host that has git and tmux and no tmux config of its
-own: an existing `~/.tmux.conf`, `~/.config/tmux` or `$XDG_CONFIG_HOME/tmux` is
-never moved, replaced or linked over. It follows Chadmux's main branch. If the
-TPM clone fails, run `./install --chadmux` again to finish. Chadmux is a host
-setup; sandboxes do not get it, and its automatic pane labels do not recognize
-sbx sessions yet.
+The privileges profile is `standard`, or `privileged` when a chosen plugin
+needs it (only docker does). The Sprite's user has sudo inside the Sprite;
+the boundary is the VM and the policies set from outside.
 
 ## Credentials
 
-No credential comes from the host by default. Each sandbox gets its own.
+Each teammate's Sprites hold their own credentials. Nothing comes from your
+machine except what you paste or pipe.
 
-### Agent sign-in
-
-**Claude Code** takes a subscription token per sandbox, so different sandboxes
-can bill different accounts. Make one with `claude setup-token` on a host
-signed in as the account the sandbox should use, then give it to the sandbox:
-`create` asks for it, or `bxn auth claude NAME` stores it, before or after the
-sandbox exists. sbx keeps the token on the host, scoped to that sandbox, and
-its proxy swaps it into each request; the sandbox only ever holds a
-placeholder. Boxen's `claude-token` mixin makes that work for a subscription
-token: Docker's mixin would send the placeholder as an API key, which Anthropic
-refuses for one, so the hook drops that and hands it to Claude Code as
-`CLAUDE_CODE_OAUTH_TOKEN`, and the mixin has the proxy swap it in the Bearer
-header too.
-
-Never run `/login` inside a sandbox: sbx's proxy captures that sign-in as a
-host-wide `anthropic` login, which then overrides every sandbox's own token
-(docker/sbx-releases#144). The limits of a setup token, from the same issue:
-Claude Code prints "Remote managed settings failed to load (401)" at startup,
-harmlessly, because such tokens cannot read an organization's managed
-settings, so those settings do not apply inside the sandbox; `/usage` may not
-show subscription limits; and some organizations do not allow creating one.
-
-**Codex** signs in inside the sandbox with `codex login --device-auth`, a
-code you enter in your browser, since its usual `localhost` callback cannot
-reach a sandbox. `create` offers it when it finishes, and so does entering a
-sandbox that is not signed in (`bxn NAME`, `bxn shell NAME`, `bxn run NAME`).
-Answer n to skip; the offer comes back next time. The login lives inside the
-sandbox, survives a stop and resume, and goes away with the sandbox.
-
-Do not store `anthropic` or `openai` secrets host-wide with `sbx secret set`:
-the proxy swaps a host-wide one in regardless, overriding each sandbox's own
-token or sign-in. `create` and `doctor` warn when one exists; remove it with
-`sbx secret rm anthropic` (or `openai`). Grok uses an xAI API key;
-`bxn env NAME XAI_API_KEY` stores one for that sandbox only.
-
-### Plugin keys
-
-In a terminal, `create` asks for the keys its plugins need before it starts
-provisioning. Leave any blank to skip it.
-
-| Plugin | Asks for | Where it goes |
+| What | How | Where it goes |
 |---|---|---|
-| gh-auth | A fine-grained GitHub token (Contents read/write, Metadata read-only) | An sbx secret scoped to this sandbox; the `gh-auth` mixin declares it as a proxy-managed `GH_TOKEN`, so the proxy injects it and the sandbox sees a placeholder. Needs the binding `./install` writes (below) |
-| 1pass | A 1Password service account token | Inside the sandbox, for `op`; the agent can read it |
-| tailscale | An auth key tagged `tag:boxen`, then a choice: previews over http on any port (the default, no certificate), or one dev port served over HTTPS on :443. HTTPS fetches a Let's Encrypt certificate, which lists the node's name in the public certificate logs; the node itself stays reachable only from your tailnet. Supabase Serve is HTTPS, so it skips the question | Straight to the sandbox's tailnet join; not stored |
+| Claude Code | `/login` inside the Sprite, with your own subscription | Claude's own login in the Sprite |
+| Codex | Device sign-in, offered by `create` and on the way in | Codex's own login in the Sprite |
+| GitHub | Pasted at `create`, or `bxn auth github PROJECT` | `GH_TOKEN`; Git asks gh for credentials |
+| 1Password | Pasted at `create`, or `bxn env PROJECT OP_SERVICE_ACCOUNT_TOKEN` | `OP_SERVICE_ACCOUNT_TOKEN` |
+| Grok | Pasted at `create`, or `bxn env PROJECT XAI_API_KEY` | `XAI_API_KEY` |
 
-Without a terminal, or after skipping, add them later:
-
-~~~bash
-bxn auth claude my-project                    # paste a token from claude setup-token, or pipe one in
-bxn auth github my-project                    # paste a fine-grained token, or pipe one in
-op read 'op://Work/GitHub/fine-grained-token' | bxn auth github my-project
-bxn auth github my-project --from-gh          # the host gh token, with every scope gh has
-bxn env my-project OP_SERVICE_ACCOUNT_TOKEN
-bxn tailscale join my-project
-bxn auth 1password my-project github 'op://Work/GitHub/token'  # host op:// reference
-~~~
-
-Sandbox-scoped sbx secrets are removed with the sandbox. `--gh-token-stdin`
-reads the token from stdin's first line instead of a prompt, for scripts.
-
-A stored token is not enough on its own. sbx lets a third-party kit use a
-credential only after you approve a *binding* for that service, normally
-through a prompt the first time the kit runs interactively; Docker's own kits
-need none, but Boxen's workload is third-party, so every credential its
-sandboxes use needs one. Boxen starts every sandbox detached, so that prompt
-is never shown and sbx starts the sandbox with the credential withheld: the
-proxy passes GitHub traffic through untouched (`sbx policy log NAME` shows
-`forward-bypass`) and `gh` gets "Bad credentials" from the placeholder, a
-stored agent key never reaches its service, and the proxy answers Claude
-Code's sign-in from inside the sandbox with `OAuth refresh denied (no
-authorizing binding)`, because it manages that sign-in's token exchange.
-`./install` therefore writes the approvals to `~/.config/sbx/credentials.yaml`:
-
-~~~yaml
-bindings:
-  github:
-    apiKey:
-      domains: [api.github.com, github.com, gist.github.com]
-  anthropic:
-    apiKey:
-      domains: [api.anthropic.com, console.anthropic.com, claude.ai, mcp-proxy.anthropic.com]
-    oauth:
-      domains: [platform.claude.com, api.anthropic.com, console.anthropic.com, claude.ai, mcp-proxy.anthropic.com]
-  openai:
-    apiKey:
-      domains: [api.openai.com, openai.com]
-    oauth:
-      domains: [auth.openai.com, chatgpt.com, api.openai.com, openai.com]
-  xai:
-    apiKey:
-      domains: [api.x.ai]
-~~~
-
-`install` rewrites a file it wrote before, so an older github-only one is
-brought up to date; if the file is someone else's, it prints the missing
-entries for you to merge instead of editing it. `create` refuses `gh-auth`
-and every agent sandbox until the binding they need is there, and `doctor`
-lists what is missing. A binding is an approval record, not a secret.
-
-sandboxd reads the file when it starts and not again, so after writing it on
-a host where sbx is already running, run `sbx daemon restart`. That stops
-running sandboxes; `sbx run -d --name NAME` resumes one with its files intact.
-Restarting a sandbox alone does not help: the daemon, not the sandbox, holds
-the approved set.
-
-Sandboxes created before v3 keep their scripts in an older place;
-`bxn NAME`, `shell`, `check` and the sign-in offer still work on them, and
-nothing recreates them. They get none of the v3 kits: recreate one to move it
-to v3.
-
-### Other tokens and variables
-
-`bxn env NAME VAR` sets `VAR` in a sandbox. `VAR` is the variable's name; the
-value comes from a hidden prompt or stdin, never an argument:
+Variables live in `~/.config/boxen/env.sh` in the Sprite, private to its
+user, which every shell and the agent load. Values travel on stdin, never as
+an argument:
 
 ~~~bash
-bxn env my-project SOME_TOKEN                  # prompts for the value
-op read 'op://Work/Some/token' | bxn env my-project SOME_TOKEN
+bxn env web SOME_TOKEN                          # prompts without echoing
+op read 'op://Work/Some/token' | bxn env web SOME_TOKEN
 ~~~
 
-Where the value goes depends on the name:
+Use a fine-grained GitHub token limited to the repositories the Sprite
+needs, with Contents read/write, Metadata read-only and an expiry. Fly's
+Connectors could keep GitHub tokens out of Sprites entirely; Boxen does not
+use them yet.
 
-| Name | Stored as | The sandbox sees |
-|---|---|---|
-| `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `XAI_API_KEY`, `GH_TOKEN`, `GITHUB_TOKEN`, `GROQ_API_KEY`, `MISTRAL_API_KEY`, `OPENROUTER_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY` | A sandbox-scoped sbx secret for that service | A placeholder; the proxy injects the real value |
-| Anything else | A line in `~/.config/boxen/env.sh` inside the sandbox, loaded by every shell | The real value, which the agent can read |
+## Previews
 
-For a token that only travels to an API, keep it out of the sandbox with an
-[sbx custom secret](https://docs.docker.com/ai/sandboxes/configuration/credentials/#custom-secrets)
-instead. Run on the host:
+`sprite exec` forwards a port that a command opens to the same port on your
+machine, so a dev server started in `bxn shell` is often reachable at once.
+Otherwise:
 
 ~~~bash
-sbx secret set-custom --sandbox my-project \
-  --host api.example.com \
-  --env EXAMPLE_API_KEY \
-  --ref 'op://Work/Example/api-key'     # or --command 'example-cli token'
+bxn proxy web 5173                    # localhost:5173
+bxn proxy web 3001:3000               # localhost:3001 to the Sprite's 3000
+bxn proxy web supabase                # 3000, 54321, 54323, 54324 and 8000
 ~~~
 
-The command prints a placeholder (`sbx-cs-…`). When a request to a listed host
-contains it, in a header or the body, the proxy swaps in the real value. A
-sandbox that already exists does not get the variable, so store the
-placeholder, which is not secret, with `bxn env`:
+Every Sprite also has an HTTPS URL that reaches its port 8080 and needs a
+Fly login from your organization (`bxn url web`). Boxen never makes it
+public.
+
+## Sleep, checkpoints and cost
+
+A Sprite sleeps by itself, so there is no `stop`. An open shell or agent
+session keeps it awake. A dev server started by hand stops when it sleeps.
+
+`bxn checkpoint web` snapshots the whole filesystem; `bxn restore web ID`
+rolls back to one and discards everything since, so checkpoint first.
+
+Fly bills per second while a Sprite is awake: $0.07 per CPU-hour and
+$0.04375 per GB-hour of memory, plus storage. Fly's example is $0.44 for a
+four-hour Claude session. The organization can have 3 Sprites awake at once
+on pay-as-you-go, or 10 on the $20 plan; `bxn list --all` shows who holds
+them.
+
+## Host setup and Chadmux
+
+`./install` links `bxn` into `~/.local/bin`, and the launcher follows the
+link back to this checkout. It then offers Chadmux, Chad's opinionated tmux
+config, with TPM plugins for the Dracula theme, tmux-yank and
+vim-tmux-navigator. `./install --chadmux` installs it without asking, and
+`--no-chadmux` skips the question. Chadmux never moves, replaces or links
+over an existing tmux config. It is a host setup; Sprites do not get it.
+
+## Develop
 
 ~~~bash
-printf '%s' 'sbx-cs-…' | bxn env my-project EXAMPLE_API_KEY
+bash tests/run.sh            # syntax of every script, and the Python tests
+bash tests/sprite/spike.sh   # creates a real Sprite; see below
 ~~~
 
-Repeat `--host` for more domains; `*.example.com` matches one label. Avoid
-`--value`, which leaves the token in shell history. sbx marks custom secrets as
-experimental. Use `bxn env` alone when the program needs the token itself,
-such as to sign requests or build a connection string.
+The tests run the launcher against a fake `sprite` CLI
+(`tests/fakes/sprite`) and the guest scripts against fake tools, so they need
+no Fly account. Set `TEST_BASH` to a Bash 3.2 executable to run them with it.
 
-Only requests through the sbx proxy get the real value. Code run directly in
-the sandbox uses it already. Containers the sandbox's Docker runs, such as
-Supabase's edge functions, reach the internet without it and send the bare
-placeholder; give them `HTTPS_PROXY` and the proxy's CA certificate
-(`$PROXY_CA_CERT_B64`, base64) to get the swap.
+[AGENTS.md](AGENTS.md) has the rules for agents working on this repository,
+and the design is in
+[docs/superpowers/specs/2026-10-29-sprites-design.md](docs/superpowers/specs/2026-10-29-sprites-design.md).
 
-`sbx secret ls` on the host lists secrets with masked values. To see which
-variables a sandbox's `env.sh` sets, without the values:
+### Not verified on a real Sprite yet
 
-~~~bash
-sbx exec my-project sh -c 'sed -n "s/^export \([^=]*\)=.*/\1/p" ~/.config/boxen/env.sh'
-~~~
+Boxen moved from Docker Sandboxes to Sprites on 2026-10-29, and no Sprite
+has been created with it yet. `tests/sprite/spike.sh` checks what the design
+could not take from Fly's documentation; run it on a machine logged in to
+the team's organization, and record the results in the design's Review log:
 
-## Tailscale and previews
-
-Join through the browser/device flow:
-
-~~~bash
-./bxn tailscale join my-project
-./bxn tailscale status my-project
-~~~
-
-Or pipe an auth key tagged `tag:boxen` directly from a secret manager:
-
-~~~bash
-op read 'op://Development/Tailscale/auth-key' |
-  ./bxn tailscale join my-project --auth-key-stdin
-~~~
-
-The key travels on stdin into a temporary guest file with private permissions.
-Tailscale receives that file's path; the file is removed afterward. No auth
-key belongs in a kit, CLI argument, image, shell profile, or environment file.
-
-The node joins as `boxen-` plus eight random hex digits, not as the sandbox's
-name. When `tailscale serve` fetches the node's HTTPS certificate from Let's
-Encrypt, that certificate, with the node's full name, goes into the public
-Certificate Transparency logs; only your tailnet can reach the node, but
-anyone can read what it is called. The guest keeps the random name, so a
-rejoin reuses it; `join` prints it, and `status` lists it first.
-
-**The sandbox runs an agent you do not fully trust, and a joined sandbox is a
-node on your tailnet, outside sbx's network policy.** Three things keep that
-in check:
-
-1. **Every node is tagged `tag:boxen`.** Both joins pass `--advertise-tags`,
-   so the browser login must come from an owner of the tag and a key must
-   carry it. A tagged node has no user's identity: it gets none of your
-   access, and a Funnel grant to `autogroup:member` does not reach it. After
-   a join, Boxen reads the node back; unless its tags are exactly `tag:boxen`
-   and it has no Funnel grant, or if it cannot be read back at all, Boxen
-   logs it out and fails. Permissions come from every tag a node carries, so
-   `tag:boxen` plus another tag is refused too.
-2. **Your policy limits who reaches the node, and on which ports.** In
-   userspace mode, tailscaled forwards an incoming connection to the same
-   port on the guest's `127.0.0.1`: not only the served routes, but Postgres,
-   the dev server and anything the agent starts listening on. Add the
-   following to your policy (`bxn create` prints it too when the tailscale plugin is on). It is an addition to
-   your existing rules, not a replacement for them: merge the `tagOwners` and
-   the acl into yours. Rules are additive, so any other rule that reaches
-   `tag:boxen`, such as Tailscale's default allow-all, still applies and
-   should go. The result allows only the served ports, and nothing from the
-   sandbox outward:
-
-   ~~~jsonc
-   {
-     "tagOwners": {"tag:boxen": ["autogroup:admin"]},
-     "acls": [
-       {
-         "action": "accept", "proto": "tcp",
-         "src": ["autogroup:member"],
-         "dst": ["tag:boxen:443,4410,4431,5432,5433,5434,8443"]
-       }
-     ]
-     // No "funnel" nodeAttrs entry may target tag:boxen or "*".
-   }
-   ~~~
-
-   A policy written with `grants` takes the same rule as
-   `{"src": ["autogroup:member"], "dst": ["tag:boxen"], "ip": ["tcp:443", …]}`.
-
-   There is more than one way to write this. A policy that already names who
-   may reach everything, such as
-   `{"action": "accept", "src": ["group:admin"], "dst": ["*:*"]}`, covers
-   sandboxes too, and the rule above adds nothing for those users; the
-   seven-port narrowing then applies only to members outside that group.
-   Whatever the shape, three things must hold: `tag:boxen` is in `tagOwners`,
-   no rule has `tag:boxen` as `src`, and no `funnel` nodeAttrs entry names it.
-   A `tests` entry with `"src": "tag:boxen"` and a `deny` list of your most
-   sensitive destinations is a useful tripwire for the second one: Tailscale
-   refuses to save a policy that breaks it. It checks only the destinations
-   you list, so it does not prove the rule holds everywhere. Read
-   [Tailscale's ACL docs](https://tailscale.com/kb/1018/acls) before editing.
-
-   If someone could add a node from Tailscale's side, your access rules come
-   from the same servers; [Tailnet Lock](https://tailscale.com/kb/1226/tailnet-lock)
-   covers that, and a key signed with `tailscale lock sign` works with
-   `--auth-key-stdin`.
-3. **Use `--tailscale` only on sandboxes that need previews.** The mixin
-   allows `*.tailscale.com`, which every tailnet shares, so an agent on such a
-   sandbox could join a tailnet of its own and move data through it. Boxen
-   cannot prevent that; the sbx network policy is the only control. It also
-   allows `acme-v02.api.letsencrypt.org`, which `tailscale serve` needs to
-   fetch the node's HTTPS certificate.
-
-The node has no operator, so the agent cannot change its settings; `join`,
-`serve` and `status` run as root.
-
-### Previews: http by default, HTTPS by choice
-
-Once joined, `http://NODE.TAILNET.ts.net:PORT` reaches any port the sandbox
-listens on: userspace tailscaled forwards an incoming tailnet connection to the
-same port on the guest's loopback, so there is nothing to configure and no
-certificate is issued. `join` prints the node's name. The link is already
-encrypted by WireGuard; what plain http loses is the browser's secure context
-(service workers, `crypto.subtle`, `Secure` cookies), which a dev preview
-rarely needs. With http, the policy rule above should list the ports your apps
-listen on, such as `tag:boxen:3000,54323`, instead of the HTTPS ports.
-
-`serve` publishes one port, or the Supabase preset, over HTTPS instead. That
-fetches a Let's Encrypt certificate, which lists the node's name in the public
-Certificate Transparency logs; the node itself stays reachable only from your
-tailnet, and the name is random (above), so the record says that your tailnet
-runs Boxen and nothing more. In a terminal, `create` asks which you want after
-the auth key; `serve` and Supabase Serve say so before they fetch anything.
-
-~~~bash
-./bxn tailscale serve my-project 5173
-./bxn tailscale serve my-project supabase
-~~~
-
-| Tailnet HTTPS port | Guest HTTP port | Service |
-|---|---|---|
-| 443 | 3000 | Main app |
-| 4410 | 3010 | Secondary app |
-| 4431 | 3001 | Secondary app |
-| 5432 | 54321 | Supabase API, **not Postgres** |
-| 5433 | 54323 | Supabase Studio |
-| 5434 | 54324 | Mailpit/Inbucket |
-| 8443 | 8000 | Kong |
-
-With Supabase Serve selected, joining through the wrapper applies the preset
-once; tailscaled keeps serve config in its state, so it survives a stop and
-resume. The preset owns :443, so a single-port `serve` is refused while it is
-selected; run the app on port 3000. The preset configures routes, but does not
-install or start Supabase. Enable Tailscale HTTPS when requested by Tailscale's
-own flow.
-
-Each environment has a separate node identity under its own random `boxen-`
-name. Its state lives in `/var/lib/tailscale` on the sandbox's own disk: it survives a
-stop and resume and goes away with the sandbox. Do not export an enrolled
-environment as an image; it would carry the identity, and this wrapper
-deliberately has no template-export command.
-
-Userspace networking avoids a tunnel device and uses a local SOCKS5 listener for
-outgoing tailnet connections. For an individual command:
-
-~~~bash
-curl --proxy socks5h://127.0.0.1:1055 http://other-machine:3000
-~~~
-
-Keep Docker's HTTP_PROXY/HTTPS_PROXY values intact so credential injection
-continues working. Userspace mode does not provide transparent kernel routing.
-Direct peer UDP is not enabled; relay performance depends on the
-host network and SBX policy.
-
-~~~bash
-./bxn exec my-project tail /var/log/boxen/tailscaled.log
-~~~
-
-## RTK and editor details
-
-`rtkplus` adds the agent's own RTK mixin at create. For Claude,
-`v3/rtkplus-claude` adds RTK's PreToolUse command to `~/.claude/settings.json`
-after Docker's Claude mixin has seeded it, keeping every other hook and setting.
-For Codex, `v3/rtkplus-codex` runs `rtk init --global --codex`, which writes
-hooks.json and instructions and leaves Docker's managed config.toml alone. Grok
-can use the RTK CLI explicitly; this project does not claim an automatic Grok
-hook.
-
-NvChad is pinned to your configuration revision
-c0e1543a7a64c8db877df02fc7decfb0a9e07ecb, with Neovim v0.12.6. Parser
-installation failures fail the image build; `check` confirms the six Mason
-language servers.
-
-## Verify and develop
-
-~~~bash
-./bxn validate                # Docker's kit validator on v3/; requires login
-./bxn check my-project        # Tool/browser/config checks inside the guest
-
-python3 -m pip install -r tests/requirements.txt
-bash tests/run.sh                    # Syntax and isolated host CLI tests
-
-# v3 sandbox and workspace-copy checks; run sequentially with other VMs stopped.
-bash tests/workload-smoke.sh claude rtk    # shell, claude, codex or grok; rtk or nortk
-bash tests/host/smoke-gate.sh              # every agent, with and without RTK, and Tailscale
-bash tests/host/update-gate.sh             # bxn update keeps every package
-~~~
-
-The host gates in `tests/host/` create real sandboxes on a machine with sbx and
-Docker, on a shared library in which every check counts toward one exit status:
-
-~~~bash
-bash tests/host/compose-gate.sh      # the workload alone and with each agent mixin
-bash tests/host/tools-gate.sh        # every tool baked in, build and rebuild times
-bash tests/host/mixins-gate.sh       # every Boxen mixin on at once, for each agent, and a restart
-bash tests/host/launcher-gate.sh     # bxn itself: create, check, validate, --open-network
-bash tests/host/acceptance-gate.sh   # all of them, once, on a clean revision
-~~~
-
-Set TEST_BASH to a Bash 3.2 executable to exercise the host CLI with it.
-Tests never use personal credentials. Runtime checks do not authenticate
-agents, join a tailnet, or read a vault automatically.
-
-[AGENTS.md](AGENTS.md) has the rules for agents working on this repository.
-Its skills, such as
-[botfight](https://github.com/MixTapeSoftware/skills/tree/main/botfight), live
-in `.agents/skills/`, linked for Claude Code and Grok. Refresh them from
-MixTapeSoftware/skills with `bash scripts/sync-skills.sh`.
-
-The code suite includes isolated Tailscale tests using fake commands for route
-arguments, timeouts, and auth-file cleanup. Further live Tailscale smoke
-validation is skipped for this prototype at the user's request.
-
-Each workload check creates a disposable sandbox through `bxn create`,
-capped at 2 GiB and two CPUs. It refuses concurrent sandboxes and, on Linux,
-requires at least 4 GiB available memory before starting. It also checks that
-RTK is composed as chosen, that the agent has no standing sudo, that
-`--with-sudo` works, and that the copied workspace, with work done after the
-copy, survives a stop and resume. Successful test sandboxes are removed;
-failed ones are stopped if SBX retained them. The disk check requires 3 GiB
-free once sbx has built the kit image (`sbx-kit-src`) or 12 GiB before. Logs
-stay under ignored local/; a lock left by a dead run is reclaimed.
+- the path form `sprite api` takes for a Sprite's own policies, which
+  lock-down depends on;
+- that stdin, including payloads over 64 KB, reaches commands through
+  `sprite exec`;
+- that Docker runs at all, and under which profile;
+- whether a non-admin member can reach another member's Sprite URL;
+- whether Git works through a GitHub Connector, which would let Boxen drop
+  GitHub tokens;
+- whether a checkpoint can seed a new Sprite;
+- that a login zsh reads `.zshenv`.
