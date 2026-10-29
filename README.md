@@ -85,9 +85,10 @@ bxn create web --dry-run              # the plan, without creating anything
 1. Checks that the `sprite` CLI is logged in and the name is free.
 2. Runs `sprite create --skip-console --label boxen HANDLE-PROJECT`.
 3. **Locks it down** before anything runs in it: posts the network policy and
-   the privileges profile, then reads the policy back from inside the Sprite
-   and the profile from the API. A Sprite that does not enforce what was set
-   is destroyed.
+   the privileges profile, then reads both back from the API (and the policy
+   from the Sprite's own copy, where it has one) and checks that a host
+   outside the policy does not resolve inside it. A Sprite that does not
+   enforce what was set is destroyed.
 4. Installs the base: build tools and libraries, database clients, zsh with
    Oh My Zsh, tmux, ripgrep, mise with Node 22 and Go, and the GitHub CLI.
 5. Checks the agent (Sprites ship Claude Code and Codex; Grok is installed),
@@ -139,7 +140,10 @@ installers float.
 
 A Sprite starts able to reach any host. Boxen sets its policy from outside
 before anything runs in it, and the agent inside cannot change it: the
-Sprite holds only a read-only copy at `/.sprite/policy/network.json`.
+Sprite holds only a read-only copy at `/.sprite/policy/network.json`. Boxen
+reads the policy back from the API, and from that copy when the Sprite has
+one, and checks that a host outside the policy does not resolve inside the
+Sprite, before it trusts the Sprite.
 
 The policy is `policies/sprite-baseline.json`, which includes Fly's
 `defaults` (GitHub, npm, PyPI, Docker Hub and the major AI APIs) and the

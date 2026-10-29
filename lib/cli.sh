@@ -599,7 +599,7 @@ cmd_allow() {
   fi
   document="$(printf '%s' "$current" | policy_merge "${hosts[@]}")" || die 'Could not merge the policy'
   printf '%s' "$document" | policy_set "$BOX_NAME" || die "Could not set $BOX_NAME's network policy"
-  policy_covers "$(policy_inside "$BOX_NAME" </dev/null 2>/dev/null)" "$document" ||
+  policy_enforced "$BOX_NAME" "$document" ||
     die "The policy was sent, but $BOX_NAME does not report it yet; check with bxn policy $BOX_NAME"
   log "Allowed ${hosts[*]} in $BOX_NAME"
 }
@@ -693,9 +693,14 @@ cmd_proxy() {
 }
 
 cmd_url() {
+  local info
   [[ $# == 1 ]] || die 'Usage: url PROJECT'
   need_sprite_named "$1"
-  sprite_cmd url -s "$BOX_NAME" </dev/null
+  need_jq
+  # sprite url is deprecated; the Sprite's record holds the URL and who may open it.
+  info="$(sprite_api "$BOX_NAME" / </dev/null)" || die "Could not read $BOX_NAME from the Sprites API"
+  printf '%s' "$info" | jq -r '(.data // .) | .url, "Access: \(.url_settings.auth // "?"), private access for \(.url_settings.private_access // "?")"' ||
+    die "Could not read $BOX_NAME's URL"
   printf 'The URL reaches port 8080 and needs a Fly login from your org. bxn never makes it public.\n'
 }
 

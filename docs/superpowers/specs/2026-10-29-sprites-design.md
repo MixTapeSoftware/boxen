@@ -40,8 +40,8 @@ readings of the design hold *(builder's calls, open to Chad's review)*:
   makes it public. Spike item 5 reports what a non-admin member sees.
 - **`sprite api` path form** is not documented. Boxen uses
   `sprite api -s NAME /policy/...` in one function; spike item 9 says
-  whether that is right. Lock-down reads the policy back inside the Sprite,
-  so a wrong form fails create and destroys the Sprite rather than leaving
+  whether that is right. Lock-down reads the policy back through the same
+  form, so a wrong form fails create and destroys the Sprite rather than leaving
   it open. An interrupt before lock-down is verified also destroys it,
   without asking; the destroy offer below applies only after that point.
   Only a kill or crash in that window, before anything is installed, can
@@ -344,8 +344,9 @@ A hand-run script, `tests/sprite/spike.sh`, in the style of
 1. `sudo -n true` works for `sprite`; `whoami` and `$HOME` as expected.
 2. A heredoc through `sprite exec -- bash -s` arrives intact, including a
    payload over 64 KB, and the exit code propagates.
-3. Network policy set via `sprite api`, read back from
-   `/.sprite/policy/network.json`, and a blocked host fails fast.
+3. Network policy set via `sprite api`, read back from the API and from
+   `/.sprite/policy/network.json` where it exists, and a blocked host fails
+   fast (and does not resolve through `getent`, lock-down's probe).
 4. Docker: `sudo apt install docker.io`, `docker run hello-world`, with
    privileges `standard` and then `privileged`. Decides the docker and
    supabase-serve rows above.
@@ -415,3 +416,33 @@ step's success is its exit code; the tests fake `sprite` on PATH; and
 because Fly does not publish what `defaults` covers, the baseline lists base
 provisioning's hosts explicitly, which is harmless if `defaults` already
 has them.
+
+2026-10-29, first spike run (Chad's laptop, Sprite version 0.0.4). Passed:
+1, 2 (100 KB of stdin intact; 200 KB of immediate output lost, sprites-go#51,
+as expected), 9 (the `sprite api -s NAME` form), 3's enforcement (a host
+outside the policy is REFUSED in 1s, an allowed one and every baseline host
+resolve; the Sprite cannot write its policy file), 7 and 10. Failed:
+- 3's read-back: the Sprite had no `/.sprite/policy/network.json` at all,
+  though Fly documents it, so every `lock_down` would have destroyed its
+  Sprite. The launcher now reads the policy back from the API (a GET of
+  `/policy/network`), and from the inside copy only where one exists. The
+  API only shows Fly saved the policy, so `lock_down` also looks up a real
+  host the policy does not allow (`example.org`, or the next candidate)
+  inside the Sprite and fails if it resolves: enforcement is at DNS.
+- 4: under `privileged`, dockerd booted (overlayfs, containerd) and the pull
+  failed only on DNS: Docker Hub's blobs came from
+  `production.cloudfront.docker.com`, which `defaults` does not cover and the
+  docker plugin misspelt as `cloudflare`. The plugin now allows both. The
+  service failed because `dockerd` is not at `/usr/sbin/dockerd`; the guest
+  script now finds it on PATH. Under `standard`, dockerd left no log; the
+  docker plugin asks for `privileged`, so this is recorded, not chased.
+Open: 3 and 4 need a rerun to confirm these fixes; 5 and 8 are manual; 6
+was skipped.
+
+2026-10-29, second spike run (PR #31's spike). Every check the fixes target
+passed: 9 (a GET prints bare JSON on stdout), 3 (the policy reads back from
+the API; the Sprite again had no inside copy; `getent` fails for a blocked
+host and resolves an allowed one, so lock-down's probe holds), and 4 under
+`privileged` (`docker run hello-world`, and dockerd as a `sprite-env`
+service). Docker under `standard` still fails; the docker plugin asks for
+`privileged`. Still open: 5 and 8 (manual) and 6 (skipped).

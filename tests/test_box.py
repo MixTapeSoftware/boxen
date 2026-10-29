@@ -110,8 +110,14 @@ class Box(unittest.TestCase):
         posts = [c for c in calls if c["args"][0] == "api" and "POST" in c["args"]]
         self.assertEqual([c["args"][3] for c in posts], ["/policy/network", "/policy/privileges"])
         self.assertEqual(json.loads(posts[1]["stdin"]), {"profile": "privileged"})
-        # Read back inside the Sprite, not just from the API.
-        self.assertIn(["exec", "-s", "me-web", "--", "cat", "/.sprite/policy/network.json"], [c["args"] for c in calls])
+        # Read back from the API, and from the Sprite's own copy.
+        gets = [c["args"][3] for c in calls if c["args"][0] == "api" and "POST" not in c["args"]]
+        self.assertIn("/policy/network", gets)
+        reads = [c["args"][6] for c in calls if c["args"][:6] == ["exec", "-s", "me-web", "--", "sh", "-c"]
+                 and "/.sprite/policy/network.json" in c["args"][6]]
+        self.assertTrue(reads)
+        # The fake ends a copy in a space as this does, so an empty file reads as present.
+        self.assertIn('cat "$f"; printf " "', reads[0])
 
     def test_lock_down_fails_when_the_sprite_enforces_something_else(self):
         # The Sprite still unrestricted, or missing a rule: never continue.
@@ -119,6 +125,45 @@ class Box(unittest.TestCase):
             result = self.bash('lock_down me-web standard "$(policy_document example.com)"', ok=False,
                                FAKE_INSIDE_POLICY=inside)
             self.assertNotEqual(result.returncode, 0, inside)
+            result = self.bash('lock_down me-web standard "$(policy_document example.com)"', ok=False,
+                               FAKE_API_POLICY=inside)
+            self.assertNotEqual(result.returncode, 0, inside)
+
+    def test_lock_down_fails_when_the_sprite_has_an_empty_copy(self):
+        # An empty file is there but holds no policy; it is not a missing one.
+        result = self.bash('lock_down me-web standard "$(policy_document example.com)"', ok=False,
+                           FAKE_INSIDE_POLICY="")
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_lock_down_fails_when_a_blocked_host_resolves_inside(self):
+        # The API only shows Fly saved the policy; the lookup shows the Sprite enforces it.
+        result = self.bash('lock_down me-web standard "$(policy_document example.com)"', ok=False,
+                           FAKE_CANARY="resolves")
+        self.assertNotEqual(result.returncode, 0)
+        result = self.bash('lock_down me-web standard "$(policy_document example.com)"', ok=False,
+                           FAKE_CANARY="")
+        self.assertNotEqual(result.returncode, 0, "an exec that prints nothing is not a pass")
+
+    def test_the_canary_is_a_host_the_document_does_not_allow(self):
+        def canary(*hosts):
+            return self.bash(f'policy_canary "$(policy_document {" ".join(hosts)})"').stdout.strip()
+        self.assertEqual(canary(), "example.org")
+        self.assertEqual(canary("example.org"), "example.net")
+        self.assertEqual(canary("example.org", "example.net"), "iana.org")
+        # A wildcard allows only the names under it (and, to be safe, its apex).
+        self.assertEqual(canary("'*.example.org'"), "example.net")
+        self.assertEqual(canary("'*.net'"), "example.org")
+        self.assertEqual(canary("'*.org'"), "example.net")
+        self.assertEqual(canary("'*.org'", "example.net"), "")
+        self.assertEqual(canary("'*'"), "")
+        self.assertEqual(self.bash("""policy_canary '{"rules":[]}'""").stdout, "")
+
+    def test_lock_down_relies_on_the_api_where_the_sprite_has_no_copy(self):
+        # The spike's Sprite had no /.sprite/policy/network.json.
+        self.bash('lock_down me-web standard "$(policy_document example.com)"', FAKE_NO_INSIDE_POLICY="1")
+        result = self.bash('lock_down me-web standard "$(policy_document example.com)"', ok=False,
+                           FAKE_NO_INSIDE_POLICY="1", FAKE_API_POLICY='{"rules": []}')
+        self.assertNotEqual(result.returncode, 0)
 
     def test_lock_down_accepts_rules_the_sprite_adds_and_pretty_printing(self):
         doc = self.bash("policy_document example.com").stdout

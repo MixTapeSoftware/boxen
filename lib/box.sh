@@ -139,29 +139,60 @@ policy_set() {
   sprite_api "$1" /policy/network -X POST -H 'Content-Type: application/json' --data-binary @- >/dev/null
 }
 policy_get() { sprite_api "$1" /policy/network </dev/null; }
-# What the Sprite itself enforces: its read-only copy of the policy.
-policy_inside() { sprite_exec "$1" -- cat /.sprite/policy/network.json; }
+# The Sprite's own read-only copy of the policy, or nothing where it has none:
+# Fly documents /.sprite/policy/network.json, but the spike's Sprite had none.
+# A copy ends in a space, so an empty file is not taken for a missing one.
+policy_inside() {
+  sprite_exec "$1" -- sh -c 'f=/.sprite/policy/network.json; if [ -e "$f" ]; then cat "$f"; printf " "; fi'
+}
+# policy_canary DOCUMENT: a real host the document does not allow, or nothing
+# when it allows everything (or every candidate). *.NAME counts as allowing
+# NAME too, so a canary is never a host the policy might let through.
+policy_canary() {
+  printf '%s' "$1" | jq -r '
+    [.rules[]? | select(.action == "allow") | .domain // empty] as $allow
+    | def allowed($h): any($allow[]; . as $p
+        | $p == "*" or $p == $h or (($p | startswith("*.")) and ($h == $p[2:] or ($h | endswith($p[1:])))));
+    if (.rules // [] | length) == 0 then empty
+    else first(("example.org", "example.net", "iana.org") | select(allowed(.) | not)) // empty end'
+}
+# policy_blocks NAME HOST: HOST does not resolve inside the Sprite. Fly
+# enforces the policy at DNS, so this shows the Sprite enforces it, where the
+# API only shows Fly saved it.
+policy_blocks() {
+  [[ "$(sprite_exec "$1" -- sh -c 'if getent hosts "$1" >/dev/null; then echo resolves; else echo blocked; fi' sh "$2" \
+    </dev/null 2>/dev/null)" == blocked ]]
+}
+# policy_enforced NAME DOCUMENT: the API reports every rule set, so does the
+# Sprite's own copy where it has one, and a host outside them is blocked.
+policy_enforced() {
+  local api inside canary
+  api="$(policy_get "$1" 2>/dev/null)" || return 1
+  policy_covers "$api" "$2" || return 1
+  inside="$(policy_inside "$1" </dev/null 2>/dev/null)" || return 1
+  [[ -z "$inside" ]] || policy_covers "$inside" "$2" || return 1
+  canary="$(policy_canary "$2")" || return 1
+  [[ -z "$canary" ]] || policy_blocks "$1" "$canary"
+}
 privileges_set() {
   printf '{"profile":"%s"}' "$2" |
     sprite_api "$1" /policy/privileges -X POST -H 'Content-Type: application/json' --data-binary @- >/dev/null
 }
 privileges_get() { sprite_api "$1" /policy/privileges </dev/null | jq -r '.profile // ""'; }
-# lock_down NAME PROFILE DOCUMENT: apply both policies, then read them back:
-# the network policy from inside the Sprite, the profile from the API. Any
-# failure returns non-zero, and the caller destroys the Sprite.
+# lock_down NAME PROFILE DOCUMENT: apply both policies, then read them back
+# (policy_enforced). Any failure returns non-zero, and the caller destroys
+# the Sprite.
 lock_down() {
-  local name="$1" profile="$2" document="$3" inside="" attempt=0
+  local name="$1" profile="$2" document="$3" attempt=0
   printf '%s' "$document" | policy_set "$name" || return 1
   privileges_set "$name" "$profile" || return 1
   # The Sprite reloads its copy live; give it a few seconds to land.
-  while :; do
-    inside="$(policy_inside "$name" </dev/null 2>/dev/null)" || inside=""
-    if policy_covers "$inside" "$document"; then break; fi
+  until policy_enforced "$name" "$document"; do
     attempt=$((attempt + 1))
-    [[ "$attempt" -lt "${BOXEN_POLICY_WAIT:-10}" ]] || break
+    [[ "$attempt" -lt "${BOXEN_POLICY_WAIT:-10}" ]] || {
+      warn "The network policy in $name does not match what was set."; return 1; }
     sleep 1
   done
-  policy_covers "$inside" "$document" || { warn "The network policy in $name does not match what was set."; return 1; }
   [[ "$(privileges_get "$name")" == "$profile" ]] || { warn "The privileges profile of $name is not $profile."; return 1; }
 }
 

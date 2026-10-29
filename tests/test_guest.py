@@ -128,7 +128,8 @@ class Provisioning(ScriptCase):
     def test_docker_runs_dockerd_as_a_service_through_sudo(self):
         text = (GUEST / "docker-root.sh").read_text()
         self.assertIn("docker.io docker-compose-v2 docker-buildx", text)
-        self.assertIn('sprite-env services create dockerd --cmd /usr/bin/sudo --args "-n,/usr/sbin/dockerd"', text)
+        self.assertIn('dockerd="$(command -v dockerd)"', text)
+        self.assertIn('sprite-env services create dockerd --cmd /usr/bin/sudo --args "-n,$dockerd"', text)
         self.assertIn('usermod -aG docker "$1"', text)
 
     def test_skills_install_links_every_skill_for_every_agent(self):
