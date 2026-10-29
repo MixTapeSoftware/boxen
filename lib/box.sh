@@ -54,8 +54,10 @@ sprite_api() {
   sprite_cmd api -s "$name" "$path" -- -fsS "$@"
 }
 
-box_root() { sprite_exec "$BOX_NAME" -- sudo -n "$@"; }
-box_user() { sprite_exec "$BOX_NAME" -- "$@"; }
+# No port forwarding: sprite exec otherwise binds any port a command opens,
+# such as a check's ChromeDriver, on this machine.
+box_root() { sprite_exec "$BOX_NAME" --no-port-forward -- sudo -n "$@"; }
+box_user() { sprite_exec "$BOX_NAME" --no-port-forward -- "$@"; }
 box_guest() {
   local who="$1" script="$2"
   shift 2
@@ -65,11 +67,17 @@ box_guest() {
     *) die "box_guest: root or user, not $who" ;;
   esac
 }
+# VALUE in single quotes, which every POSIX shell reads back as it was;
+# printf %q can write bash-only $'...' quoting, and sh sources these files.
+sh_quote() {
+  local q="'\\''"
+  printf "'%s'" "${1//\'/$q}"
+}
 # The value goes out on stdin as a quoted export line and replaces any
 # earlier one; ~/.config/boxen/env.sh is private to the user. The Sprite and
 # its agent can read it.
 box_set_env() {
-  printf 'export %s=%q\n' "$1" "$2" | box_user sh -c '
+  printf 'export %s=%s\n' "$1" "$(sh_quote "$2")" | box_user sh -c '
     umask 077
     dir="$HOME/.config/boxen"; file="$dir/env.sh"
     mkdir -p "$dir"; touch "$file"

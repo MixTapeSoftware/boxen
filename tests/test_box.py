@@ -46,9 +46,9 @@ class Box(unittest.TestCase):
     def test_root_and_user_run_through_sprite_exec_with_stdin(self):
         self.bash("printf 'hi' | box_root apt-get update; box_user whoami </dev/null")
         calls = self.calls()
-        self.assertEqual(calls[0]["args"], ["exec", "-s", "me-web", "--", "sudo", "-n", "apt-get", "update"])
+        self.assertEqual(calls[0]["args"], ["exec", "-s", "me-web", "--no-port-forward", "--", "sudo", "-n", "apt-get", "update"])
         self.assertEqual(calls[0]["stdin"], "hi")
-        self.assertEqual(calls[1]["args"], ["exec", "-s", "me-web", "--", "whoami"])
+        self.assertEqual(calls[1]["args"], ["exec", "-s", "me-web", "--no-port-forward", "--", "whoami"])
 
     def test_the_organization_follows_the_subcommand(self):
         self.bash("box_user true </dev/null; sprite_cmd 'checkpoint create' -s me-web", BOXEN_SPRITE_ORG="team")
@@ -78,7 +78,7 @@ class Box(unittest.TestCase):
         result = subprocess.run(["bash", "-c", PRELUDE + "box_upload_guest"], env=self.env, capture_output=True, timeout=30)
         self.assertEqual(result.returncode, 0, result.stderr)
         line = json.loads(self.log.read_text().splitlines()[0])
-        self.assertEqual(line["args"][:6], ["exec", "-s", "me-web", "--", "sudo", "-n"])
+        self.assertEqual(line["args"][:7], ["exec", "-s", "me-web", "--no-port-forward", "--", "sudo", "-n"])
         self.assertIn("/etc/boxen/env.sh", " ".join(line["args"]))
         self.assertIn("./check.sh", line["stdin"])   # tar's member names are in the clear
 

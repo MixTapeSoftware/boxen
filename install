@@ -42,7 +42,7 @@ elif [[ -e "$target" ]]; then
   fi
 fi
 if [[ -n "$target" ]]; then
-  # The launcher resolves the link, so lib/ and v3/ stay in this checkout.
+  # The launcher resolves the link, so lib/, guest/ and plugins/ stay in this checkout.
   ln -s "$PROJECT_DIR/bxn" "$target"
   log "Linked $target -> $PROJECT_DIR/bxn"
 fi
@@ -55,7 +55,7 @@ if [[ -L "$old" && "$(readlink "$old")" == "$PROJECT_DIR/boxen" ]]; then
 fi
 
 # Chadmux is off unless chosen, and an existing host tmux config is always
-# left alone. It is a host setup; sandboxes do not get it.
+# left alone. It is a host setup; Sprites do not get it.
 state="$(chadmux_status)"
 case "$state" in
   installed)
@@ -98,76 +98,13 @@ if [[ ":$PATH:" != *":$bin_dir:"* ]]; then
   printf '  export PATH="$HOME/.local/bin:$PATH"\n'
 fi
 
-# sbx lets a third-party kit use a credential only after the user approves a
-# binding for that service, through a prompt on the kit's first interactive
-# run; Docker's own kits need none. Boxen's workload is third-party, so every
-# credential its sandboxes use needs one, and Boxen starts every sandbox
-# detached, so the prompt is never seen. Without a binding the credential is
-# withheld: the gh-auth mixin's token never reaches GitHub, a stored agent key
-# never reaches its service, and the proxy refuses Claude Code's sign-in from
-# inside the sandbox ("OAuth refresh denied (no authorizing binding)") because
-# it manages that sign-in's token exchange. Bindings are approval records,
-# not secrets. The oauth domains are each kit's token endpoint host plus the
-# hosts it injects into; the apiKey domains are the hosts it injects into.
-credentials="${BOXEN_SBX_CREDENTIALS:-$HOME/.config/sbx/credentials.yaml}"
-header="# Written by boxen's install. Approves the credentials Boxen's kits use: the gh-auth"
-bindings='bindings:
-  github:
-    apiKey:
-      domains: [api.github.com, github.com, gist.github.com]
-  anthropic:
-    apiKey:
-      domains: [api.anthropic.com, console.anthropic.com, claude.ai, mcp-proxy.anthropic.com]
-    oauth:
-      domains: [platform.claude.com, api.anthropic.com, console.anthropic.com, claude.ai, mcp-proxy.anthropic.com]
-  openai:
-    apiKey:
-      domains: [api.openai.com, openai.com]
-    oauth:
-      domains: [auth.openai.com, chatgpt.com, api.openai.com, openai.com]
-  xai:
-    apiKey:
-      domains: [api.x.ai]'
-wanted="$header
-# mixin's github secret and the Claude, Codex and Grok agents' own services.
-$bindings"
-# The services a stranger's file must mention, and the block for each.
-binding_block() {
-  local line keep=0
-  while IFS= read -r line; do
-    case "$line" in "  $1:") keep=1 ;; "  "[a-z]*:) keep=0 ;; esac
-    [[ "$keep" == 0 ]] || printf '%s\n' "$line"
-  done <<< "$bindings"
-}
-restart_note() {
-  # sandboxd reads the file when it starts and not again.
-  echo 'If sbx is already running, run: sbx daemon restart (stops running sandboxes;'
-  echo 'resume one with sbx run -d --name NAME). Until then the credentials are withheld.'
-}
-if [[ ! -e "$credentials" ]]; then
-  mkdir -p "$(dirname "$credentials")"
-  printf '%s\n' "$wanted" > "$credentials"
-  log "Approved the kits' credentials (github, anthropic, openai, xai) in $credentials"
-  restart_note
-elif { IFS= read -r first < "$credentials"; [[ "$first" == '# Written by boxen'* ]]; }; then
-  # Boxen's own file: bring it up to date, as an older install wrote github only.
-  if [[ "$(cat "$credentials")" == "$wanted" ]]; then
-    log "Credential bindings present in $credentials"
-  else
-    printf '%s\n' "$wanted" > "$credentials"
-    log "Updated the credential bindings in $credentials (github, anthropic, openai, xai)"
-    restart_note
-  fi
-else
-  missing=""
-  for service in github anthropic openai xai; do
-    grep -Eq "^[[:space:]]+$service:[[:space:]]*$" "$credentials" || missing="$missing $service"
-  done
-  if [[ -z "$missing" ]]; then
-    log "Credential bindings present in $credentials"
-  else
-    warn "$credentials exists without bindings for:$missing. Those credentials are withheld from sandboxes until it holds:"
-    for service in $missing; do binding_block "$service" | sed 's/^/  /'; done
-  fi
+# Boxen drives Fly.io Sprites through the sprite CLI, logged in to the team's
+# Fly organization; nothing else is configured on this machine.
+if ! command -v sprite >/dev/null 2>&1; then
+  warn 'The sprite CLI is not installed. Install it from https://docs.fly.io/sprites/cli/installation'
+  warn 'then run: sprite login'
+fi
+if ! command -v jq >/dev/null 2>&1; then
+  warn 'bxn needs jq to set Sprite policies; install it with your package manager.'
 fi
 log 'Done. Next: bxn doctor'
