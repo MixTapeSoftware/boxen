@@ -176,14 +176,14 @@ need_sprite_named() {
 # --- Repositories ------------------------------------------------------------
 
 # owner/repo, an https URL, or a GitHub SSH remote, as an https URL to clone.
-# Returns 2 for an https URL with a user or token in it, which bxn never
-# prints or passes on.
+# Returns 2 for an https URL with a user, token, query or fragment in it,
+# which bxn never prints or passes on.
 repo_url() {
   local ref="$1" slug='^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$' path authority
   case "$ref" in
     https://*)
       authority="${ref#https://}"; authority="${authority%%[/?#]*}"
-      [[ "$authority" != *@* ]] || return 2
+      [[ "$authority" != *@* && "$ref" != *[?#]* ]] || return 2
       printf '%s\n' "$ref" ;;
     git@github.com:*) path="${ref#git@github.com:}"; printf 'https://github.com/%s\n' "${path%.git}.git" ;;
     ssh://git@github.com/*) path="${ref#ssh://git@github.com/}"; printf 'https://github.com/%s\n' "${path%.git}.git" ;;
@@ -202,7 +202,7 @@ clone_url() {
     [[ -n "$repo" ]] || die 'Name a repository (owner/repo or an https URL), run bxn inside a clone, or pass --no-clone.'
   fi
   url="$(repo_url "$repo")" || case $? in
-    2) die 'The repository URL holds a user name or token, which bxn never prints or passes on. Name it as owner/repo; for a private repository, store a token with bxn auth github PROJECT.' ;;
+    2) die 'The repository URL holds a user name, token or query, which bxn never prints or passes on. Name it as owner/repo; for a private repository, store a token with bxn auth github PROJECT.' ;;
     *) die "Not a repository bxn can clone: $repo (use owner/repo or an https URL)" ;;
   esac
   printf '%s\n' "$url"
