@@ -42,7 +42,10 @@ readings of the design hold *(builder's calls, open to Chad's review)*:
   `sprite api -s NAME /policy/...` in one function; spike item 9 says
   whether that is right. Lock-down reads the policy back inside the Sprite,
   so a wrong form fails create and destroys the Sprite rather than leaving
-  it open.
+  it open. An interrupt before lock-down is verified also destroys it,
+  without asking; the destroy offer below applies only after that point.
+  Only a kill or crash in that window, before anything is installed, can
+  still leave an empty Sprite unrestricted.
 - **Phase 2 (Connectors) is not built**; it waits on spike item 6.
 - The handle lives in `~/.config/boxen/handle`; Sprites carry the label
   `boxen`.
