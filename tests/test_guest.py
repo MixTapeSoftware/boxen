@@ -51,7 +51,9 @@ class Environment(ScriptCase):
         self.assertEqual(out[1], "yes")
 
     def test_env_file_trusts_mise_config_in_the_workspace(self):
-        out = self.source_env('printf %s "$MISE_TRUSTED_CONFIG_PATHS"').stdout
+        # Read it in a child shell: mise runs as a child of the agent, so the
+        # value only counts when it is exported.
+        out = self.source_env("sh -c 'printf %s \"$MISE_TRUSTED_CONFIG_PATHS\"'").stdout
         self.assertEqual(out, f"{self.directory}/workspace:/workspace")
 
     def test_shell_files_load_the_environment_once(self):
