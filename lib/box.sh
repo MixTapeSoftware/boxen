@@ -144,14 +144,32 @@ policy_get() { sprite_api "$1" /policy/network </dev/null; }
 policy_inside() {
   sprite_exec "$1" -- sh -c 'f=/.sprite/policy/network.json; if [ -e "$f" ]; then cat "$f"; fi'
 }
-# policy_enforced NAME DOCUMENT: the API reports every rule set, and so does
-# the Sprite's own copy where it has one.
+# policy_canary DOCUMENT: a real host the document does not allow, or nothing
+# when it allows everything (or every candidate).
+policy_canary() {
+  printf '%s' "$1" | jq -r '
+    [.rules[]? | select(.action == "allow") | .domain // empty] as $allow
+    | def allowed($h): any($allow[]; . == "*" or . == $h or (startswith("*.") and ($h | endswith(.[1:]))));
+    if (.rules // [] | length) == 0 then empty
+    else first(("example.org", "example.net", "iana.org") | select(allowed(.) | not)) // empty end'
+}
+# policy_blocks NAME HOST: HOST does not resolve inside the Sprite. Fly
+# enforces the policy at DNS, so this shows the Sprite enforces it, where the
+# API only shows Fly saved it.
+policy_blocks() {
+  [[ "$(sprite_exec "$1" -- sh -c 'if getent hosts "$1" >/dev/null; then echo resolves; else echo blocked; fi' sh "$2" \
+    </dev/null 2>/dev/null)" == blocked ]]
+}
+# policy_enforced NAME DOCUMENT: the API reports every rule set, so does the
+# Sprite's own copy where it has one, and a host outside them is blocked.
 policy_enforced() {
-  local api inside
+  local api inside canary
   api="$(policy_get "$1" 2>/dev/null)" || return 1
   policy_covers "$api" "$2" || return 1
   inside="$(policy_inside "$1" </dev/null 2>/dev/null)" || return 1
-  [[ -z "$inside" ]] || policy_covers "$inside" "$2"
+  [[ -z "$inside" ]] || policy_covers "$inside" "$2" || return 1
+  canary="$(policy_canary "$2")" || return 1
+  [[ -z "$canary" ]] || policy_blocks "$1" "$canary"
 }
 privileges_set() {
   printf '{"profile":"%s"}' "$2" |

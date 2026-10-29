@@ -126,6 +126,10 @@ if on curl -fsS -m 20 -o /dev/null https://example.org >>"$log" 2>&1; then
 else note "3 PASS example.org is refused, in $(( $(date +%s) - start ))s"; fi
 if on curl -fsS -m 20 -o /dev/null https://example.com >>"$log" 2>&1; then note '3 PASS example.com, allowed, is reachable'
 else note '3 FAIL example.com, allowed, was not reachable'; fi
+# lock_down's probe: getent must fail for a blocked host and work for an allowed one.
+if on getent hosts example.org >>"$log" 2>&1; then note '3 FAIL getent resolves example.org, which is blocked'
+elif on getent hosts example.com >>"$log" 2>&1; then note '3 PASS getent: example.org blocked, example.com resolves (the lock-down probe)'
+else note '3 FAIL getent resolves neither host; the lock-down probe cannot tell blocked from broken'; fi
 # Base provisioning's hosts must resolve under the shipped baseline.
 if [[ -f policies/sprite-baseline.json ]]; then
   policy_post network < policies/sprite-baseline.json >>"$log" 2>&1

@@ -424,7 +424,10 @@ resolve; the Sprite cannot write its policy file), 7 and 10. Failed:
 - 3's read-back: the Sprite had no `/.sprite/policy/network.json` at all,
   though Fly documents it, so every `lock_down` would have destroyed its
   Sprite. The launcher now reads the policy back from the API (a GET of
-  `/policy/network`), and from the inside copy only where one exists.
+  `/policy/network`), and from the inside copy only where one exists. The
+  API only shows Fly saved the policy, so `lock_down` also looks up a real
+  host the policy does not allow (`example.org`, or the next candidate)
+  inside the Sprite and fails if it resolves: enforcement is at DNS.
 - 4: under `privileged`, dockerd booted (overlayfs, containerd) and the pull
   failed only on DNS: Docker Hub's blobs came from
   `production.cloudfront.docker.com`, which `defaults` does not cover and the

@@ -126,6 +126,25 @@ class Box(unittest.TestCase):
                                FAKE_API_POLICY=inside)
             self.assertNotEqual(result.returncode, 0, inside)
 
+    def test_lock_down_fails_when_a_blocked_host_resolves_inside(self):
+        # The API only shows Fly saved the policy; the lookup shows the Sprite enforces it.
+        result = self.bash('lock_down me-web standard "$(policy_document example.com)"', ok=False,
+                           FAKE_CANARY="resolves")
+        self.assertNotEqual(result.returncode, 0)
+        result = self.bash('lock_down me-web standard "$(policy_document example.com)"', ok=False,
+                           FAKE_CANARY="")
+        self.assertNotEqual(result.returncode, 0, "an exec that prints nothing is not a pass")
+
+    def test_the_canary_is_a_host_the_document_does_not_allow(self):
+        def canary(*hosts):
+            return self.bash(f'policy_canary "$(policy_document {" ".join(hosts)})"').stdout.strip()
+        self.assertEqual(canary(), "example.org")
+        self.assertEqual(canary("example.org"), "example.net")
+        self.assertEqual(canary("example.org", "example.net"), "iana.org")
+        self.assertEqual(canary("'*.org'", "example.net"), "")
+        self.assertEqual(canary("'*'"), "")
+        self.assertEqual(self.bash("""policy_canary '{"rules":[]}'""").stdout, "")
+
     def test_lock_down_relies_on_the_api_where_the_sprite_has_no_copy(self):
         # The spike's Sprite had no /.sprite/policy/network.json.
         self.bash('lock_down me-web standard "$(policy_document example.com)"', FAKE_NO_INSIDE_POLICY="1")

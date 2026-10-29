@@ -75,13 +75,15 @@ class CLI(unittest.TestCase):
         calls = self.calls()
         self.assertEqual(calls[0]["args"], ["create", "--skip-console", "--label", "boxen", "me-web"])
         kinds = [(c["args"][0], c["args"][3] if c["args"][0] == "api" else " ".join(c["args"][4:6])) for c in calls[1:]]
-        # Both policies are posted, the network one read back from the API and inside,
-        # the profile from the API...
-        self.assertEqual(kinds[:5], [("api", "/policy/network"), ("api", "/policy/privileges"),
-                                     ("api", "/policy/network"), ("exec", "sh -c"), ("api", "/policy/privileges")])
+        # Both policies are posted, the network one read back from the API and inside
+        # and probed with a blocked host, the profile from the API...
+        self.assertEqual(kinds[:6], [("api", "/policy/network"), ("api", "/policy/privileges"),
+                                     ("api", "/policy/network"), ("exec", "sh -c"), ("exec", "sh -c"),
+                                     ("api", "/policy/privileges")])
+        self.assertEqual(self.execs()[1][-2:], ["sh", "example.org"])
         # ...and only then does anything run in the Sprite.
-        self.assertEqual(self.execs()[1][:2], ["sudo", "-n"])
-        self.assertIn("/etc/boxen/env.sh", " ".join(self.execs()[1]))
+        self.assertEqual(self.execs()[2][:2], ["sudo", "-n"])
+        self.assertIn("/etc/boxen/env.sh", " ".join(self.execs()[2]))
 
     def test_create_provisions_base_then_plugins_then_clones(self):
         self.create("--plugins", "just,gh-auth")
@@ -119,6 +121,13 @@ class CLI(unittest.TestCase):
         self.assertIn("destroyed before anything was installed", result.stderr)
         self.assertIn(["destroy", "--force", "me-web"], [c["args"] for c in self.calls()])
         self.assertEqual([e for e in self.execs() if "/.sprite/policy/network.json" not in " ".join(e)], [])
+
+    def test_a_sprite_that_resolves_a_blocked_host_is_destroyed_untouched(self):
+        self.env["FAKE_CANARY"] = "resolves"
+        result = self.create(ok=False)
+        self.assertIn("destroyed before anything was installed", result.stderr)
+        self.assertIn(["destroy", "--force", "me-web"], [c["args"] for c in self.calls()])
+        self.assertFalse([e for e in self.execs() if e[:2] != ["sh", "-c"]])
 
     def test_a_failed_policy_post_also_destroys(self):
         self.env["FAKE_FAIL"] = "/policy/privileges"
