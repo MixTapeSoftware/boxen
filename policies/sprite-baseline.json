@@ -1,0 +1,26 @@
+{
+  "rules": [
+    {"include": "defaults"},
+    {"domain": "github.com", "action": "allow"},
+    {"domain": "api.github.com", "action": "allow"},
+    {"domain": "codeload.github.com", "action": "allow"},
+    {"domain": "raw.githubusercontent.com", "action": "allow"},
+    {"domain": "objects.githubusercontent.com", "action": "allow"},
+    {"domain": "release-assets.githubusercontent.com", "action": "allow"},
+    {"domain": "archive.ubuntu.com", "action": "allow"},
+    {"domain": "security.ubuntu.com", "action": "allow"},
+    {"domain": "ports.ubuntu.com", "action": "allow"},
+    {"domain": "mise.en.dev", "action": "allow"},
+    {"domain": "mise.jdx.dev", "action": "allow"},
+    {"domain": "mise-versions.jdx.dev", "action": "allow"},
+    {"domain": "nodejs.org", "action": "allow"},
+    {"domain": "registry.npmjs.org", "action": "allow"},
+    {"domain": "go.dev", "action": "allow"},
+    {"domain": "dl.google.com", "action": "allow"},
+    {"domain": "proxy.golang.org", "action": "allow"},
+    {"domain": "sum.golang.org", "action": "allow"},
+    {"domain": "storage.googleapis.com", "action": "allow"},
+    {"domain": "pypi.org", "action": "allow"},
+    {"domain": "files.pythonhosted.org", "action": "allow"}
+  ]
+}
