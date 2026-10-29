@@ -1,18 +1,18 @@
-# Sourced by bxn. Interactive kit selector for create.
+# Sourced by bxn. Interactive plugin selector for create.
 # Reads and sets the caller's $agent and $selected (a comma list), so flags
 # and defaults arrive pre-selected. Bash 3.2 compatible.
 
 tui_select() {
   local ids=() descs=() kinds=() marks=() id desc i count cursor=0 key seq mark
   local first_plugin
-  # One agent per sandbox: a pick-one group above the plugin checkboxes.
+  # One agent per Sprite: a pick-one group above the plugin checkboxes.
   ids=(shell claude codex grok)
-  descs=('No coding agent; a zsh workload' 'Claude Code' 'Codex' 'Grok Build')
+  descs=('No coding agent; zsh' 'Claude Code' 'Codex' 'Grok Build')
   kinds=(agent agent agent agent)
   first_plugin=${#ids[@]}
-  while IFS=$'\t' read -r id desc; do
+  while IFS=$'\t' read -r id _ desc; do
     ids+=("$id"); descs+=("$desc"); kinds+=(plugin)
-  done < <(tail -n +2 "$PROJECT_DIR/plugins.tsv")
+  done < <(tail -n +2 "$PLUGIN_INDEX")
   count=${#ids[@]}
   for ((i = 0; i < count; i++)); do
     if [[ "${kinds[i]}" == agent ]]; then
@@ -24,12 +24,11 @@ tui_select() {
   tput civis 2>/dev/null || true
   while true; do
     printf '\033[2J\033[H'
-    printf '  Create %s: choose an agent and kits\n' "$name"
+    printf '  Create %s: choose an agent and plugins\n' "$BOX_NAME"
     printf '  Up/Down or j/k: move   Space: choose   Enter: create   q: quit\n\n'
-    printf '  Docker (Engine and Compose) and the core tools: always included\n\n'
-    printf '  Agent (one per sandbox)\n'
+    printf '  Agent (one per Sprite)\n'
     for ((i = 0; i < count; i++)); do
-      if [[ $i == "$first_plugin" ]]; then printf '\n  Kits\n'; fi
+      if [[ $i == "$first_plugin" ]]; then printf '\n  Plugins\n'; fi
       if [[ "${kinds[i]}" == agent ]]; then
         if [[ "${marks[i]}" == 1 ]]; then mark='(*)'; else mark='( )'; fi
       else

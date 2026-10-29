@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Small host-side adapter for local Docker Sandboxes. Bash 3.2 compatible.
+# Boxen's launcher: development Sprites on Fly.io for coding agents. Bash 3.2
+# compatible.
 set -euo pipefail
-# Resolve symlinks: a link in ~/.local/bin must still find lib/ and v3/ next
-# to the real file. macOS 12 and earlier have no realpath; follow links by hand.
+# Resolve symlinks: a link in ~/.local/bin must still find lib/, guest/ and
+# plugins/ next to the real file. macOS 12 and earlier have no realpath.
 resolve() {
   if command -v realpath >/dev/null 2>&1; then realpath "$1"; return; fi
   local p="$1" link
@@ -13,10 +14,8 @@ resolve() {
   printf '%s\n' "$p"
 }
 PROJECT_DIR="$(cd "$(dirname "$(resolve "${BASH_SOURCE[0]}")")" && pwd)"
-SBX_BIN="${SBX_BIN:-sbx}"
-DOCKER_BIN="${DOCKER_BIN:-docker}"
-source "$PROJECT_DIR/lib/pins.sh"
 source "$PROJECT_DIR/lib/prompt.sh"
+source "$PROJECT_DIR/lib/box.sh"
 source "$PROJECT_DIR/lib/cli.sh"
 source "$PROJECT_DIR/lib/tui.sh"
 main "$@"
