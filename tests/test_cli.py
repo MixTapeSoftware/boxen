@@ -155,7 +155,9 @@ class CLI(unittest.TestCase):
 
     def test_a_repository_url_with_credentials_is_refused_unprinted(self):
         for ref in ("https://ghp_s3cret@github.com/acme/web.git",
-                    "https://x-access-token:ghp_s3cret@github.com/acme/web"):
+                    "https://x-access-token:ghp_s3cret@github.com/acme/web",
+                    "https://github.com/acme/web.git?access_token=ghp_s3cret",
+                    "https://github.com/acme/web.git#ghp_s3cret"):
             result = self.cli("create", "web", ref, "--dry-run", "--no-tui", ok=False)
             self.assertIn("bxn auth github", result.stderr, ref)
             self.assertNotIn("ghp_s3cret", result.stdout + result.stderr, ref)
@@ -221,6 +223,26 @@ class CLI(unittest.TestCase):
         result = self.create()
         self.assertIn("bxn auth github web", result.stderr)
         self.assertIn("is ready", result.stdout)
+
+    def test_a_failed_clone_points_at_bxn_clone(self):
+        self.env["FAKE_FAIL"] = "git clone"
+        result = self.create()
+        self.assertIn("bxn clone web https://github.com/acme/web.git", result.stderr)
+
+    def test_clone_loads_the_environment_and_refuses_a_full_workspace(self):
+        self.sprites("me-web")
+        self.cli("clone", "web", "acme/api")
+        script, url = self.execs()[-1][2], self.execs()[-1][-1]
+        self.assertEqual(url, "https://github.com/acme/api.git")
+        self.assertIn(". /etc/boxen/env.sh", script)
+        self.assertIn("/workspace is not empty", script)
+        self.assertLess(script.index("not empty"), script.index("git clone"))
+        self.env["FAKE_FAIL"] = "git clone"
+        self.assertIn("bxn auth github web", self.cli("clone", "web", "acme/api", ok=False).stderr)
+        del self.env["FAKE_FAIL"]
+        for ref in ("https://user:ghp_s3cret@github.com/a/b.git", "https://github.com/a/b.git?token=ghp_s3cret"):
+            self.assertNotIn("ghp_s3cret", self.cli("clone", "web", ref, ok=False).stderr, ref)
+        self.cli("clone", "nope", "acme/api", ok=False)
 
     def test_git_identity_is_forwarded(self):
         (self.directory / "gitconfig").write_text("[user]\n\tname = Ada L\n\temail = ada@example.com\n")
