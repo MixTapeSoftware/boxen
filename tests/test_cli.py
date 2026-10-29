@@ -75,9 +75,10 @@ class CLI(unittest.TestCase):
         calls = self.calls()
         self.assertEqual(calls[0]["args"], ["create", "--skip-console", "--label", "boxen", "me-web"])
         kinds = [(c["args"][0], c["args"][3] if c["args"][0] == "api" else " ".join(c["args"][4:6])) for c in calls[1:]]
-        # Both policies are posted, the network one read back inside, the profile from the API...
-        self.assertEqual(kinds[:4], [("api", "/policy/network"), ("api", "/policy/privileges"),
-                                     ("exec", "cat /.sprite/policy/network.json"), ("api", "/policy/privileges")])
+        # Both policies are posted, the network one read back from the API and inside,
+        # the profile from the API...
+        self.assertEqual(kinds[:5], [("api", "/policy/network"), ("api", "/policy/privileges"),
+                                     ("api", "/policy/network"), ("exec", "sh -c"), ("api", "/policy/privileges")])
         # ...and only then does anything run in the Sprite.
         self.assertEqual(self.execs()[1][:2], ["sudo", "-n"])
         self.assertIn("/etc/boxen/env.sh", " ".join(self.execs()[1]))
@@ -117,7 +118,7 @@ class CLI(unittest.TestCase):
         result = self.create(ok=False)
         self.assertIn("destroyed before anything was installed", result.stderr)
         self.assertIn(["destroy", "--force", "me-web"], [c["args"] for c in self.calls()])
-        self.assertEqual([e for e in self.execs() if e[0] != "cat"], [])
+        self.assertEqual([e for e in self.execs() if "/.sprite/policy/network.json" not in " ".join(e)], [])
 
     def test_a_failed_policy_post_also_destroys(self):
         self.env["FAKE_FAIL"] = "/policy/privileges"

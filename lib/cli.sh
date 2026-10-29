@@ -599,7 +599,7 @@ cmd_allow() {
   fi
   document="$(printf '%s' "$current" | policy_merge "${hosts[@]}")" || die 'Could not merge the policy'
   printf '%s' "$document" | policy_set "$BOX_NAME" || die "Could not set $BOX_NAME's network policy"
-  policy_covers "$(policy_inside "$BOX_NAME" </dev/null 2>/dev/null)" "$document" ||
+  policy_enforced "$BOX_NAME" "$document" ||
     die "The policy was sent, but $BOX_NAME does not report it yet; check with bxn policy $BOX_NAME"
   log "Allowed ${hosts[*]} in $BOX_NAME"
 }

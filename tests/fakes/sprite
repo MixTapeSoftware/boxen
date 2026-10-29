@@ -6,6 +6,8 @@ FAKE_SPRITE_STATE directory. Knobs, all environment variables:
   FAKE_CREATE_FAIL     create fails (FAKE_CREATE_STDERR is its message)
   FAKE_FAIL            a substring: any call whose words contain it fails
   FAKE_INSIDE_POLICY   what the Sprite reports at /.sprite/policy/network.json
+  FAKE_NO_INSIDE_POLICY  the Sprite has no /.sprite/policy/network.json
+  FAKE_API_POLICY      what a GET of /policy/network reports
   FAKE_LOGIN_STATUS    exit status of agent-login.sh status (FAKE_LOGIN_AGENT prints)
   FAKE_EXEC_STDOUT     printed by any other exec
 """
@@ -80,8 +82,9 @@ elif cmd == "destroy":
 elif cmd in ("exec", "x"):
     words = args[args.index("--") + 1:]
     line = " ".join(words)
-    if words == ["cat", "/.sprite/policy/network.json"]:
-        print(env("FAKE_INSIDE_POLICY") or read_policy(flag("-s"), "network"))
+    if words[:2] == ["sh", "-c"] and "/.sprite/policy/network.json" in line:
+        if not env("FAKE_NO_INSIDE_POLICY"):
+            print(env("FAKE_INSIDE_POLICY") or read_policy(flag("-s"), "network"))
     elif "agent-login.sh" in line and words[-1] == "status":
         print(env("FAKE_LOGIN_AGENT", "codex"))
         sys.exit(int(env("FAKE_LOGIN_STATUS", "0")))
@@ -94,5 +97,7 @@ elif cmd == "api":
     if "POST" in args:
         json.loads(stdin)
         open(policy_path(name, kind), "w").write(stdin)
+    elif kind == "network" and env("FAKE_API_POLICY"):
+        print(env("FAKE_API_POLICY"))
     else:
         print(read_policy(name, kind))

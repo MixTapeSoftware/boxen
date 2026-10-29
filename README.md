@@ -139,7 +139,9 @@ installers float.
 
 A Sprite starts able to reach any host. Boxen sets its policy from outside
 before anything runs in it, and the agent inside cannot change it: the
-Sprite holds only a read-only copy at `/.sprite/policy/network.json`.
+Sprite holds only a read-only copy at `/.sprite/policy/network.json`. Boxen
+reads the policy back from the API, and from that copy when the Sprite has
+one, before it trusts the Sprite.
 
 The policy is `policies/sprite-baseline.json`, which includes Fly's
 `defaults` (GitHub, npm, PyPI, Docker Hub and the major AI APIs) and the

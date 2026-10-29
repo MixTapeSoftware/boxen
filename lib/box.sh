@@ -139,29 +139,39 @@ policy_set() {
   sprite_api "$1" /policy/network -X POST -H 'Content-Type: application/json' --data-binary @- >/dev/null
 }
 policy_get() { sprite_api "$1" /policy/network </dev/null; }
-# What the Sprite itself enforces: its read-only copy of the policy.
-policy_inside() { sprite_exec "$1" -- cat /.sprite/policy/network.json; }
+# The Sprite's own read-only copy of the policy, or nothing where it has none:
+# Fly documents /.sprite/policy/network.json, but the spike's Sprite had none.
+policy_inside() {
+  sprite_exec "$1" -- sh -c 'f=/.sprite/policy/network.json; if [ -e "$f" ]; then cat "$f"; fi'
+}
+# policy_enforced NAME DOCUMENT: the API reports every rule set, and so does
+# the Sprite's own copy where it has one.
+policy_enforced() {
+  local api inside
+  api="$(policy_get "$1" 2>/dev/null)" || return 1
+  policy_covers "$api" "$2" || return 1
+  inside="$(policy_inside "$1" </dev/null 2>/dev/null)" || return 1
+  [[ -z "$inside" ]] || policy_covers "$inside" "$2"
+}
 privileges_set() {
   printf '{"profile":"%s"}' "$2" |
     sprite_api "$1" /policy/privileges -X POST -H 'Content-Type: application/json' --data-binary @- >/dev/null
 }
 privileges_get() { sprite_api "$1" /policy/privileges </dev/null | jq -r '.profile // ""'; }
-# lock_down NAME PROFILE DOCUMENT: apply both policies, then read them back:
-# the network policy from inside the Sprite, the profile from the API. Any
-# failure returns non-zero, and the caller destroys the Sprite.
+# lock_down NAME PROFILE DOCUMENT: apply both policies, then read them back
+# (policy_enforced). Any failure returns non-zero, and the caller destroys
+# the Sprite.
 lock_down() {
-  local name="$1" profile="$2" document="$3" inside="" attempt=0
+  local name="$1" profile="$2" document="$3" attempt=0
   printf '%s' "$document" | policy_set "$name" || return 1
   privileges_set "$name" "$profile" || return 1
   # The Sprite reloads its copy live; give it a few seconds to land.
-  while :; do
-    inside="$(policy_inside "$name" </dev/null 2>/dev/null)" || inside=""
-    if policy_covers "$inside" "$document"; then break; fi
+  until policy_enforced "$name" "$document"; do
     attempt=$((attempt + 1))
-    [[ "$attempt" -lt "${BOXEN_POLICY_WAIT:-10}" ]] || break
+    [[ "$attempt" -lt "${BOXEN_POLICY_WAIT:-10}" ]] || {
+      warn "The network policy in $name does not match what was set."; return 1; }
     sleep 1
   done
-  policy_covers "$inside" "$document" || { warn "The network policy in $name does not match what was set."; return 1; }
   [[ "$(privileges_get "$name")" == "$profile" ]] || { warn "The privileges profile of $name is not $profile."; return 1; }
 }
 

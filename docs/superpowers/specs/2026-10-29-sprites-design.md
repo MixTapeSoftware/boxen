@@ -415,3 +415,21 @@ step's success is its exit code; the tests fake `sprite` on PATH; and
 because Fly does not publish what `defaults` covers, the baseline lists base
 provisioning's hosts explicitly, which is harmless if `defaults` already
 has them.
+
+2026-10-29, first spike run (Chad's laptop, Sprite version 0.0.4). Passed:
+1, 2 (100 KB of stdin intact; 200 KB of immediate output lost, sprites-go#51,
+as expected), 9 (the `sprite api -s NAME` form), 3's enforcement (a host
+outside the policy is REFUSED in 1s, an allowed one and every baseline host
+resolve; the Sprite cannot write its policy file), 7 and 10. Failed:
+- 3's read-back: the Sprite had no `/.sprite/policy/network.json` at all,
+  though Fly documents it, so every `lock_down` would have destroyed its
+  Sprite. The launcher now reads the policy back from the API (a GET of
+  `/policy/network`), and from the inside copy only where one exists.
+- 4: under `privileged`, dockerd booted (overlayfs, containerd) and the pull
+  failed only on DNS: Docker Hub's blobs came from
+  `production.cloudfront.docker.com`, which `defaults` does not cover and the
+  docker plugin misspelt as `cloudflare`. The plugin now allows both. The
+  service failed because `dockerd` is not at `/usr/sbin/dockerd`; the guest
+  script now finds it on PATH. Under `standard`, dockerd left no log; the
+  docker plugin asks for `privileged`, so this is recorded, not chased.
+Open: 5 and 8 are manual; 6 was skipped.

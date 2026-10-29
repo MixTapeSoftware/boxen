@@ -80,7 +80,11 @@ form=""
 if api -s "$name" /policy/network >>"$log" 2>&1; then form=sprite
 elif api "/v1/sprites/$name/policy/network" >>"$log" 2>&1; then form=absolute; fi
 case "$form" in
-  sprite) note '9 PASS sprite api -s NAME /policy/network reaches the Sprite (the launcher'"'"'s form)' ;;
+  sprite) note '9 PASS sprite api -s NAME /policy/network reaches the Sprite (the launcher'"'"'s form)'
+    # policy_get parses stdout alone; anything else there breaks bxn allow and create.
+    if api -s "$name" /policy/network -- -fsS 2>>"$log" | jq -e '.rules | type == "array"' >/dev/null 2>&1; then
+      note '9 PASS a GET of /policy/network prints the policy as JSON on stdout alone'
+    else note '9 FAIL a GET of /policy/network does not print bare JSON on stdout (see log)'; fi ;;
   absolute) note '9 FAIL only sprite api /v1/sprites/NAME/... works; change sprite_api in lib/box.sh' ;;
   *) note '9 FAIL neither sprite api path form worked (see log)' ;;
 esac
@@ -92,14 +96,26 @@ policy_post() {
   fi
 }
 
-# 3. Network policy from outside, read back inside, and a blocked host.
+# 3. Network policy from outside, read back from the API and inside, and a
+# blocked host. The launcher needs the API read-back; the inside copy is
+# checked when the Sprite has one (the first run's Sprite had none).
 printf '%s' '{"rules":[{"include":"defaults"},{"domain":"example.com","action":"allow"}]}' |
   policy_post network >>"$log" 2>&1
-inside="$(on cat /.sprite/policy/network.json 2>>"$log")"
-printf '%s\n' "$inside" >>"$log"
-if printf '%s' "$inside" | jq -e '[.rules[]? | select(.domain == "example.com")] | length == 1' >/dev/null 2>&1; then
-  note '3 PASS the policy posted from outside reads back at /.sprite/policy/network.json'
-else note '3 FAIL the posted policy did not read back inside'; fi
+has_example='[.rules[]? | select(.domain == "example.com")] | length == 1'
+if api -s "$name" /policy/network -- -fsS 2>>"$log" | jq -e "$has_example" >/dev/null 2>&1; then
+  note '3 PASS the posted policy reads back from the API'
+else note '3 FAIL the posted policy did not read back from the API'; fi
+if on test -e /.sprite/policy/network.json >>"$log" 2>&1; then
+  sleep 2
+  inside="$(on cat /.sprite/policy/network.json 2>>"$log")"
+  printf '%s\n' "$inside" >>"$log"
+  if printf '%s' "$inside" | jq -e "$has_example" >/dev/null 2>&1; then
+    note '3 PASS the posted policy reads back at /.sprite/policy/network.json'
+  else note '3 FAIL /.sprite/policy/network.json exists but does not hold the posted policy'; fi
+else
+  on ls -la /.sprite /.sprite/policy >>"$log" 2>&1 || true
+  note '3 INFO the Sprite has no /.sprite/policy/network.json (the launcher relies on the API)'
+fi
 if on sh -c 'echo x > /.sprite/policy/network.json' >>"$log" 2>&1 ||
    on sudo -n sh -c 'echo x > /.sprite/policy/network.json' >>"$log" 2>&1; then
   note '3 FAIL the Sprite could write its own policy file'
@@ -120,7 +136,14 @@ if [[ -f policies/sprite-baseline.json ]]; then
 fi
 printf '%s' '{"rules":[{"include":"defaults"}]}' | policy_post network >>"$log" 2>&1
 
-# 4. Docker under the standard and privileged profiles.
+# 4. Docker under the standard and privileged profiles, with the docker
+# plugin's hosts allowed: Docker Hub's blobs come from a CDN outside defaults.
+if [[ -f plugins/docker.sh ]]; then
+  docker_hosts="$(PLUGIN_EGRESS_HOSTS=''; . plugins/docker.sh; printf '%s' "$PLUGIN_EGRESS_HOSTS")"
+  # shellcheck disable=SC2086 # one argument per host
+  jq -c --args '.rules += [$ARGS.positional[] | {domain: ., action: "allow"}]' $docker_hosts \
+    < policies/sprite-baseline.json | policy_post network >>"$log" 2>&1
+fi
 on sudo -n sh -c 'DEBIAN_FRONTEND=noninteractive apt-get update -qq && apt-get install -y -qq docker.io' >>"$log" 2>&1 ||
   note '4 FAIL apt-get install docker.io'
 for profile in standard privileged; do
@@ -133,7 +156,7 @@ done
 if on sh -c 'command -v sprite-env' >>"$log" 2>&1; then
   # Stop the loop's dockerd, or docker info passes without the service.
   on sudo -n sh -c 'pkill dockerd; sleep 1' >>"$log" 2>&1
-  on sh -c 'sprite-env services create dockerd --cmd /usr/bin/sudo --args "-n,/usr/sbin/dockerd" --duration 10s' >>"$log" 2>&1
+  on sh -c 'sprite-env services create dockerd --cmd /usr/bin/sudo --args "-n,$(PATH="$PATH:/usr/sbin"; command -v dockerd)" --duration 10s' >>"$log" 2>&1
   if on sh -c 'sleep 3; sudo -n docker info >/dev/null' >>"$log" 2>&1; then note '4 PASS dockerd runs as a sprite-env service through sudo'
   else note '4 FAIL dockerd as a sprite-env service through sudo'; fi
 fi
