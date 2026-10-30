@@ -24,7 +24,7 @@ tui_select() {
   tput civis 2>/dev/null || true
   while true; do
     printf '\033[2J\033[H'
-    printf '  Create %s: choose an agent and plugins\n' "$BOX_NAME"
+    printf '  Create %s: choose an agent and plugins\n' "$BOX_PROJECT"
     printf '  Up/Down or j/k: move   Space: choose   Enter: create   q: quit\n\n'
     printf '  Agent (one per Sprite)\n'
     for ((i = 0; i < count; i++)); do

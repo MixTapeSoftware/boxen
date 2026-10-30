@@ -91,9 +91,10 @@ bxn plugins                                  List the plugins
 bxn handle [NEW]                             Show or set your Sprite name prefix
 bxn doctor                                   Check prerequisites
 
-PROJECT is a Sprite's name without your handle: bxn create web makes
-HANDLE-web. A full name works too. Commands never create a Sprite; only
-create does.
+Sprites are named HANDLE-AGENT-PROJECT: bxn create web --claude makes
+HANDLE-claude-web. Other commands take the project alone when one agent's
+Sprite has it, else AGENT-PROJECT, or the full name. Commands never create
+a Sprite; only create does.
 EOF
 }
 
@@ -122,7 +123,7 @@ ensure_handle() {
   fi
   suggested="$(default_handle)"
   if terminal; then
-    printf 'Your Sprites are named HANDLE-PROJECT, so the team can see whose is whose.\n'
+    printf 'Your Sprites are named HANDLE-AGENT-PROJECT, so the team can see whose is whose.\n'
     read_value answer "Handle [$suggested]: "
     HANDLE="${answer:-$suggested}"
   else
@@ -134,11 +135,17 @@ ensure_handle() {
   log "Saved your handle, $HANDLE, in $HANDLE_FILE"
 }
 handle() { ensure_handle; printf '%s\n' "$HANDLE"; }
-# PROJECT or HANDLE-PROJECT to the Sprite's full name.
+# sprite_name PROJECT AGENT: HANDLE-AGENT-PROJECT, so the list shows whose
+# Sprite it is and which agent runs in it. A full name passes through, and a
+# project already starting with the agent is not doubled.
 sprite_name() {
   local name
   [[ -n "$HANDLE" ]] || die 'internal: ensure_handle first'
-  case "$1" in "$HANDLE"-*) name="$1" ;; *) name="$HANDLE-$1" ;; esac
+  case "$1" in
+    "$HANDLE"-*) name="$1" ;;
+    "$2"-*) name="$HANDLE-$1" ;;
+    *) name="$HANDLE-$2-$1" ;;
+  esac
   valid_sprite_name "$name" ||
     die "Invalid name: $name. Use lowercase letters, digits and hyphens, 63 characters at most."
   printf '%s\n' "$name"
@@ -162,17 +169,35 @@ former_handle_name() {
   done < "$FORMER_HANDLES_FILE"
   return 1
 }
+# The Sprites for PROJECT under the current handle, one per agent, a name a
+# line.
+sprites_for_project() {
+  local names agent
+  names="$(sprite_cmd list --prefix "$HANDLE-" </dev/null 2>/dev/null)" ||
+    die 'sprite list failed. Log in with sprite login, then check bxn doctor.'
+  for agent in $AGENTS; do
+    printf '%s\n' "$names" | awk '{ print $1 }' | grep -Fx -- "$HANDLE-$agent-$1" || true
+  done
+}
 # Sets BOX_NAME for a command that takes PROJECT; never creates anything.
-# The current handle wins; a full name under a former handle is the fallback.
+# PROJECT may be AGENT-PROJECT, a full name, or the project alone when one
+# agent's Sprite has it. A full name under a former handle is the fallback.
 need_sprite_named() {
-  local name
+  local name found
   need_sprite
   ensure_handle
   case "$1" in "$HANDLE"-*) name="$1" ;; *) name="$HANDLE-$1" ;; esac
   if valid_sprite_name "$name" && sprite_exists "$name"; then BOX_NAME="$name"; return 0; fi
   if former_handle_name "$1" && sprite_exists "$1"; then BOX_NAME="$1"; return 0; fi
-  BOX_NAME="$(sprite_name "$1")"
-  die "No Sprite named $BOX_NAME (see bxn list). Nothing was created; use bxn create $1."
+  if valid_sprite_name "$name"; then
+    found="$(sprites_for_project "$1")"
+    case "$(printf '%s' "$found" | grep -c .)" in
+      0) ;;
+      1) BOX_NAME="$found"; return 0 ;;
+      *) die "More than one Sprite for $1: $(printf '%s' "$found" | tr '\n' ' ')- name one with its agent, such as ${found%%$'\n'*}." ;;
+    esac
+  fi
+  die "No Sprite for $1 (see bxn list). Nothing was created; use bxn create $1."
 }
 
 # --- Repositories ------------------------------------------------------------
@@ -368,9 +393,11 @@ create() {
     url="$(clone_url "$repo")" || exit 1
   fi
   ensure_handle
-  BOX_NAME="$(sprite_name "$project")"
+  BOX_PROJECT="$project"
   # The selector shows in a terminal unless --plugins already chose.
   if [[ "$tui" == 1 && "$chose_plugins" == 0 ]] && terminal; then tui_select; fi
+  # After the selector, which may change the agent.
+  BOX_NAME="$(sprite_name "$project" "$agent")"
   add_requirements
   if has_plugin rtkplus; then
     case "$agent" in
