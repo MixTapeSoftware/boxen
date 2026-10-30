@@ -8,3 +8,12 @@ export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y docker.io docker-compose-v2 docker-buildx
 if [[ -n "${1:-}" ]]; then usermod -aG docker "$1"; fi
+# Fly's guide (/.sprite/docs/docker.md) runs Docker on overlay2 rather than
+# Docker 29's default containerd image store; keep any other settings.
+mkdir -p /etc/docker
+if [[ -s /etc/docker/daemon.json ]]; then
+  jq '."storage-driver" = "overlay2"' /etc/docker/daemon.json > /etc/docker/daemon.json.new
+  mv /etc/docker/daemon.json.new /etc/docker/daemon.json
+else
+  printf '{"storage-driver": "overlay2"}\n' > /etc/docker/daemon.json
+fi
