@@ -56,8 +56,8 @@ bxn create PROJECT [REPO] [options]          (also: init, -i)
   --agent shell|claude|codex|grok
                                  One per Sprite. Default: shell
   --claude --codex --grok        Shorthand for --agent
-  --plugins default|all|none|ID,ID,...
-                                 Default: the plugins marked default in bxn plugins
+  --plugins all|none|ID,ID,...
+                                 Default: none; nothing is assumed
   --ID                           Add plugin ID, such as --docker or --nvchad
   --gh-token                     Same as --gh-auth
   --gh-token-stdin               Read the GitHub token from stdin's first line

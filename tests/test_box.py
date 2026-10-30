@@ -202,10 +202,9 @@ class Plugins(unittest.TestCase):
             self.assertEqual(len(row), 3, row)
             self.assertIn(row[1], ("yes", "no"), row)
 
-    def test_gh_auth_is_on_by_default_and_slow_or_privileged_ones_are_not(self):
-        defaults = {r[0] for r in self.rows() if r[1] == "yes"}
-        self.assertIn("gh-auth", defaults)
-        self.assertFalse(defaults & {"nvchad", "chromium", "docker", "supabase-serve"})
+    def test_no_plugin_is_on_by_default(self):
+        # Nothing is assumed for a teammate: every plugin is picked by hand.
+        self.assertEqual([r[0] for r in self.rows() if r[1] != "no"], [])
 
     def test_requirements_come_earlier_in_the_index(self):
         ids = [r[0] for r in self.rows()]
