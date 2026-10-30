@@ -50,6 +50,15 @@ class CLI(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout)
         return result
 
+    def skip_if_busy(self, *ports):
+        """bxn proxy refuses ports in use on this machine, so a test that needs
+        fixed ports free skips when something here already holds one."""
+        import socket
+        for port in ports:
+            with socket.socket() as probe:
+                if probe.connect_ex(("127.0.0.1", port)) == 0:
+                    self.skipTest(f"localhost:{port} is in use on this machine")
+
     def calls(self, everything=False):
         if not self.log.exists():
             return []
@@ -400,6 +409,7 @@ class CLI(unittest.TestCase):
             ["checkpoint", "create", "-s", "me-web"], ["checkpoint", "list", "-s", "me-web"]])
 
     def test_proxy_supabase_reads_the_repos_ports_and_prints_links(self):
+        self.skip_if_busy(55323, 54324, 55321, 55322, 3000)
         self.sprites("me-web")
         config = "[api]\nenabled = true\nport = 55321\n\n[db]\nport = 55322 # moved\nshadow_port = 55320\n" \
                  "[db.pooler]\nport = 55329\n[studio]\nport = 55323\n"
@@ -414,6 +424,7 @@ class CLI(unittest.TestCase):
         self.assertTrue(all("--no-port-forward" in c["args"] for c in self.calls() if c["args"][0] == "exec"))
 
     def test_proxy_supabase_says_when_the_stack_is_not_up(self):
+        self.skip_if_busy(54323, 54324, 54321, 54322, 3000)
         self.sprites("me-web")
         result = self.cli("proxy", "web", "supabase")
         self.assertIn("No supabase/config.toml", result.stderr)
@@ -437,6 +448,7 @@ class CLI(unittest.TestCase):
         self.assertIn("supabase stop", result.stderr)
 
     def test_proxy_forwards_ports_and_the_supabase_preset(self):
+        self.skip_if_busy(5173, 3001, 54323, 54324, 54321, 54322, 3000)
         self.sprites("me-web")
         self.cli("proxy", "web", "5173", "3001:3000")
         self.cli("proxy", "web", "supabase")
