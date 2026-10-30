@@ -199,8 +199,25 @@ Otherwise:
 ~~~bash
 bxn proxy web 5173                    # localhost:5173
 bxn proxy web 3001:3000               # localhost:3001 to the Sprite's 3000
-bxn proxy web supabase                # 3000, 54321, 54323, 54324 and 8000
+bxn proxy web supabase                # Studio, Mailpit, the API, the database and the app
 ~~~
+
+`bxn proxy web supabase` is how to see the data in a Supabase dev stack. It
+reads the ports from the repo's `supabase/config.toml` (Supabase's defaults
+when there is none), forwards them on the same numbers so Studio's links to
+the API still work, and prints a link for each:
+
+~~~text
+Supabase in chad-web, on this machine while this runs:
+  Studio    http://localhost:54323
+  Mailpit   http://localhost:54324
+  API       http://localhost:54321
+  App       http://localhost:3000   (not running)
+  Database  postgresql://postgres:postgres@localhost:54322/postgres
+~~~
+
+The database link opens in TablePlus or `psql`. Stop a local Supabase first
+(`supabase stop`): bxn refuses a port already in use on your machine.
 
 Every Sprite also has an HTTPS URL that reaches its port 8080 and needs a
 Fly login from your organization (`bxn url web`). Boxen never makes it

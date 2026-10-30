@@ -9,6 +9,8 @@ FAKE_SPRITE_STATE directory. Knobs, all environment variables:
   FAKE_NO_INSIDE_POLICY  the Sprite has no /.sprite/policy/network.json
   FAKE_API_POLICY      what a GET of /policy/network reports
   FAKE_CANARY          what the canary lookup prints (default blocked)
+  FAKE_SUPABASE_CONFIG the repo's supabase/config.toml (none when unset)
+  FAKE_LISTENING       ports something listens on in the Sprite
   FAKE_LOGIN_STATUS    exit status of agent-login.sh status (FAKE_LOGIN_AGENT prints)
   FAKE_EXEC_STDOUT     printed by any other exec
 """
@@ -87,6 +89,13 @@ elif cmd in ("exec", "x"):
         if not env("FAKE_NO_INSIDE_POLICY"):
             inside = env("FAKE_INSIDE_POLICY")
             print(read_policy(flag("-s"), "network") if inside is None else inside, end=" ")
+    elif words[:2] == ["sh", "-c"] and "supabase/config.toml" in line:
+        if env("FAKE_SUPABASE_CONFIG"):
+            print(env("FAKE_SUPABASE_CONFIG"))
+    elif words[:2] == ["bash", "-c"] and "/dev/tcp/" in line:
+        for port in words[4:]:
+            if port in env("FAKE_LISTENING", "").split():
+                print(port)
     elif words[:2] == ["sh", "-c"] and "getent hosts" in line:
         print(env("FAKE_CANARY", "blocked"))
     elif "agent-login.sh" in line and words[-1] == "status":

@@ -14,8 +14,10 @@ HANDLE_FILE="$CONFIG_DIR/handle"
 # Handles this teammate used before, one per line: their Sprites keep the old
 # prefix and stay reachable by full name.
 FORMER_HANDLES_FILE="$CONFIG_DIR/former-handles"
-# Supabase's local stack: the app, the API, Studio, Mailpit and Kong.
-SUPABASE_PORTS="3000 54321 54323 54324 8000"
+# Supabase's local stack: the app's dev server, and the ports supabase start
+# uses unless the repo's supabase/config.toml moves them.
+SUPABASE_APP_PORT=3000
+SUPABASE_DEFAULTS="api=54321 db=54322 studio=54323 inbucket=54324"
 
 die() { printf 'bxn: %s\n' "$*" >&2; exit 1; }
 log() { printf '[+] %s\n' "$*"; }
@@ -675,19 +677,93 @@ cmd_restore() {
   sprite_cmd restore -s "$BOX_NAME" "${args[1]}" </dev/null
 }
 
+# The repo's supabase/config.toml, from /workspace or one folder down, or
+# nothing.
+supabase_config() {
+  sprite_exec "$1" --no-port-forward -- sh -c \
+    'for f in /workspace/supabase/config.toml /workspace/*/supabase/config.toml; do
+       if [ -f "$f" ]; then cat "$f"; exit 0; fi
+     done' </dev/null 2>/dev/null || true
+}
+# supabase_ports CONFIG: "api PORT", "db PORT", "studio PORT" and
+# "inbucket PORT" lines, from the config's sections or Supabase's defaults.
+supabase_ports() {
+  printf '%s\n' "$1" | awk -v defaults="$SUPABASE_DEFAULTS" '
+    BEGIN {
+      n = split(defaults, d, " ")
+      for (i = 1; i <= n; i++) { split(d[i], kv, "="); order[i] = kv[1]; port[kv[1]] = kv[2] }
+    }
+    /^[[:space:]]*\[/ { section = $0; gsub(/[][[:space:]]/, "", section); next }
+    (section in port) && /^[[:space:]]*port[[:space:]]*=/ {
+      v = $0; sub(/^[^=]*=[[:space:]]*/, "", v); sub(/[^0-9].*$/, "", v)
+      if (v != "") port[section] = v
+    }
+    END { for (i = 1; i <= n; i++) print order[i], port[order[i]] }'
+}
+# sprite_listening NAME PORT...: the ports something listens on in the Sprite.
+sprite_listening() {
+  local name="$1"
+  shift
+  sprite_exec "$name" --no-port-forward -- bash -c \
+    'for p in "$@"; do if (exec 3<>"/dev/tcp/127.0.0.1/$p") 2>/dev/null; then echo "$p"; fi; done' \
+    bash "$@" </dev/null 2>/dev/null || true
+}
+# Something on this machine already listens on the port.
+local_port_busy() { (exec 3<>"/dev/tcp/127.0.0.1/$1") 2>/dev/null; }
+
+# supabase_plan NAME: the Supabase stack's ports in SUPABASE_FORWARD, and a
+# link for each in SUPABASE_LINKS, marked when nothing listens on it yet.
+supabase_plan() {
+  local name="$1" config key port api="" db="" studio="" mail="" up line label url
+  config="$(supabase_config "$name")"
+  [[ -n "$config" ]] || warn "No supabase/config.toml in /workspace; using Supabase's default ports."
+  while read -r key port; do
+    case "$key" in
+      api) api="$port" ;; db) db="$port" ;; studio) studio="$port" ;; inbucket) mail="$port" ;;
+    esac
+  done <<EOF_PORTS
+$(supabase_ports "$config")
+EOF_PORTS
+  SUPABASE_FORWARD="$studio $mail $api $db $SUPABASE_APP_PORT"
+  # shellcheck disable=SC2086 # one argument per port
+  up=" $(sprite_listening "$name" $SUPABASE_FORWARD | tr '\n' ' ') "
+  in_list "$api" "$up" || in_list "$studio" "$up" || in_list "$db" "$up" ||
+    warn "Supabase is not running in $name yet: run supabase start in bxn shell, and these links work once it is up."
+  SUPABASE_LINKS=""
+  for line in "Studio $studio http://localhost:$studio" "Mailpit $mail http://localhost:$mail" \
+              "API $api http://localhost:$api" "App $SUPABASE_APP_PORT http://localhost:$SUPABASE_APP_PORT" \
+              "Database $db postgresql://postgres:postgres@localhost:$db/postgres"; do
+    label="${line%% *}"; line="${line#* }"; port="${line%% *}"; url="${line#* }"
+    line="$(printf '  %-9s %s' "$label" "$url")"
+    in_list "$port" "$up" || line="$line   (not running)"
+    SUPABASE_LINKS="$SUPABASE_LINKS$line
+"
+  done
+}
+
 cmd_proxy() {
-  local port ports=() re='^[0-9]{1,5}(:[0-9]{1,5})?$'
+  local port ports=() re='^[0-9]{1,5}(:[0-9]{1,5})?$' supabase=0
   [[ $# -ge 2 ]] || die 'Usage: proxy PROJECT PORT|LOCAL:REMOTE...|supabase'
   need_sprite_named "$1"; shift
   for port in "$@"; do
-    if [[ "$port" == supabase ]]; then
-      # shellcheck disable=SC2206
-      ports+=($SUPABASE_PORTS)
-      continue
-    fi
+    if [[ "$port" == supabase ]]; then supabase=1; continue; fi
     [[ "$port" =~ $re ]] || die "Expected PORT or LOCAL:REMOTE, got $port"
     ports+=("$port")
   done
+  if [[ "$supabase" == 1 ]]; then
+    supabase_plan "$BOX_NAME"
+    # shellcheck disable=SC2206 # one element per port
+    ports+=($SUPABASE_FORWARD)
+  fi
+  # Studio links to the API by its port, so ports keep their numbers rather
+  # than moving to free ones.
+  for port in "${ports[@]}"; do
+    if local_port_busy "${port%%:*}"; then
+      [[ "$supabase" == 1 ]] && die "localhost:${port%%:*} is in use on this machine. A local Supabase? Stop it with supabase stop."
+      die "localhost:${port%%:*} is in use on this machine; forward to another with LOCAL:REMOTE."
+    fi
+  done
+  [[ "$supabase" == 0 ]] || printf 'Supabase in %s, on this machine while this runs:\n%s' "$BOX_NAME" "$SUPABASE_LINKS"
   log "Forwarding ${ports[*]} to localhost on this machine; Ctrl-C stops."
   sprite_cmd proxy -s "$BOX_NAME" "${ports[@]}"
 }
