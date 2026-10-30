@@ -29,8 +29,13 @@ cd ~/code/my-app              # a clone, so bxn knows the repository
 bxn create my-app             # pick an agent and tools, paste a GitHub token
 ~~~
 
-`create` names the Sprite after your handle, which it asks for once (for
-example `ada-my-app`). It ends in a shell, or in your agent if you chose one.
+On a Linux machine with no display, a locked GNOME Keyring makes every
+`sprite` command hang waiting for an unlock prompt that cannot appear. `bxn`
+runs `sprite` without the keyring there; for `sprite` by hand, alias it:
+`alias sprite='DBUS_SESSION_BUS_ADDRESS=unix:path=/nonexistent sprite'`.
+
+`create` names the Sprite after your handle, which it asks for once, and
+the agent (for example `ada-claude-my-app`). It ends in a shell, or in your agent if you chose one.
 Claude Code asks you to sign in with `/login` the first time: use your own
 subscription. Codex offers a device sign-in.
 

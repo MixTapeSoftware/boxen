@@ -1,6 +1,7 @@
 """The plugin contract and Sprite policies in lib/box.sh, against a fake sprite."""
 import json
 import os
+import sys
 from pathlib import Path
 import re
 import subprocess
@@ -103,6 +104,17 @@ class Box(unittest.TestCase):
             self.bash(f"valid_host '{host}'")
         for host in ("*", "github", "-a.com", "a..com", "http://a.com", "a.com/x", "*.*.com", "A.COM"):
             self.assertNotEqual(self.bash(f"valid_host '{host}'", ok=False).returncode, 0, host)
+
+    @unittest.skipUnless(sys.platform.startswith("linux"), "the keyring workaround is for Linux")
+    def test_headless_linux_keeps_sprite_off_the_keyring(self):
+        # A locked keyring with no display to unlock it hangs every sprite call.
+        self.bash("sprite_cmd list", DISPLAY="", WAYLAND_DISPLAY="", DBUS_SESSION_BUS_ADDRESS="unix:path=/run/bus")
+        self.assertEqual(self.calls()[-1]["dbus"], "unix:path=/nonexistent")
+        self.bash("sprite_cmd list", DISPLAY=":0", DBUS_SESSION_BUS_ADDRESS="unix:path=/run/bus")
+        self.assertEqual(self.calls()[-1]["dbus"], "unix:path=/run/bus")
+        self.bash("sprite_cmd list", DISPLAY="", WAYLAND_DISPLAY="", BOXEN_SPRITE_KEYRING="1",
+                  DBUS_SESSION_BUS_ADDRESS="unix:path=/run/bus")
+        self.assertEqual(self.calls()[-1]["dbus"], "unix:path=/run/bus")
 
     def test_lock_down_sets_both_policies_and_reads_them_back(self):
         self.bash('lock_down me-web privileged "$(policy_document example.com)"')

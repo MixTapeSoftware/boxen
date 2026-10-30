@@ -24,6 +24,8 @@ stdin = ""
 if args and args[0] in ("exec", "x", "api") and not sys.stdin.isatty():
     stdin = sys.stdin.read()
 entry = {"args": args}
+if os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
+    entry["dbus"] = os.environ["DBUS_SESSION_BUS_ADDRESS"]
 if stdin:
     entry["stdin"] = stdin
 with open(env("FAKE_SPRITE_LOG"), "a") as log:

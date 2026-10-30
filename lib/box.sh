@@ -31,13 +31,25 @@ need_sprite() {
   SPRITE_PATH="$(type -P "$SPRITE_BIN")" ||
     die 'Install the sprite CLI (https://docs.fly.io/sprites/cli/installation) and run sprite login.'
 }
+# On Linux with no display, a locked GNOME Keyring makes sprite wait for an
+# unlock prompt that can never show, so every call hangs. Pointed at a session
+# bus that does not exist, its keyring lookup fails at once and sprite goes on
+# with its own login. BOXEN_SPRITE_KEYRING=1 keeps the real bus.
+SPRITE_DBUS=""
+if [[ "$(uname -s)" == Linux && -z "${DISPLAY:-}${WAYLAND_DISPLAY:-}" && "${BOXEN_SPRITE_KEYRING:-}" != 1 ]]; then
+  SPRITE_DBUS=unix:path=/nonexistent
+fi
 # sprite SUBCOMMAND... with the organization flag after the subcommand words
 # a caller passes in SUB (one word, or two such as "checkpoint create").
 sprite_cmd() {
   local sub="$1" words=()
   shift
   read -r -a words <<< "$sub"
-  "$SPRITE_PATH" "${words[@]}" ${SPRITE_ORG[@]+"${SPRITE_ORG[@]}"} "$@"
+  if [[ -n "$SPRITE_DBUS" ]]; then
+    DBUS_SESSION_BUS_ADDRESS="$SPRITE_DBUS" "$SPRITE_PATH" "${words[@]}" ${SPRITE_ORG[@]+"${SPRITE_ORG[@]}"} "$@"
+  else
+    "$SPRITE_PATH" "${words[@]}" ${SPRITE_ORG[@]+"${SPRITE_ORG[@]}"} "$@"
+  fi
 }
 # sprite_exec NAME [EXEC FLAGS...] -- CMD...
 sprite_exec() {
