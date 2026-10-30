@@ -25,7 +25,7 @@ if has skills; then
   check 'botfight skill for Codex and Grok' test -f "$HOME/.agents/skills/botfight/SKILL.md"
 fi
 if has fzf-bat; then check fzf command -v fzf; check bat command -v bat; fi
-for tool in just glow mermaid-ascii overmind; do
+for tool in just glow lazygit mermaid-ascii overmind; do
   if has "$tool"; then check "$tool" command -v "$tool"; fi
 done
 if has 1pass; then check op command -v op; fi
