@@ -82,7 +82,7 @@ class CLI(unittest.TestCase):
     def test_create_locks_down_before_anything_else_touches_the_sprite(self):
         self.create()
         calls = self.calls()
-        self.assertEqual(calls[0]["args"], ["create", "--skip-console", "--label", "boxen", "me-web"])
+        self.assertEqual(calls[0]["args"], ["create", "--skip-console", "--label", "boxen", "me-shell-web"])
         kinds = [(c["args"][0], c["args"][3] if c["args"][0] == "api" else " ".join(c["args"][4:6])) for c in calls[1:]]
         # Both policies are posted, the network one read back from the API and inside
         # and probed with a blocked host, the profile from the API...
@@ -128,20 +128,20 @@ class CLI(unittest.TestCase):
         self.env["FAKE_INSIDE_POLICY"] = '{"rules": []}'
         result = self.create(ok=False)
         self.assertIn("destroyed before anything was installed", result.stderr)
-        self.assertIn(["destroy", "--force", "me-web"], [c["args"] for c in self.calls()])
+        self.assertIn(["destroy", "--force", "me-shell-web"], [c["args"] for c in self.calls()])
         self.assertEqual([e for e in self.execs() if "/.sprite/policy/network.json" not in " ".join(e)], [])
 
     def test_a_sprite_that_resolves_a_blocked_host_is_destroyed_untouched(self):
         self.env["FAKE_CANARY"] = "resolves"
         result = self.create(ok=False)
         self.assertIn("destroyed before anything was installed", result.stderr)
-        self.assertIn(["destroy", "--force", "me-web"], [c["args"] for c in self.calls()])
+        self.assertIn(["destroy", "--force", "me-shell-web"], [c["args"] for c in self.calls()])
         self.assertFalse([e for e in self.execs() if e[:2] != ["sh", "-c"]])
 
     def test_a_failed_policy_post_also_destroys(self):
         self.env["FAKE_FAIL"] = "/policy/privileges"
         self.create(ok=False)
-        self.assertIn(["destroy", "--force", "me-web"], [c["args"] for c in self.calls()])
+        self.assertIn(["destroy", "--force", "me-shell-web"], [c["args"] for c in self.calls()])
         self.assertEqual(self.execs(), [])
 
     def test_allow_all_has_no_rules_and_says_so(self):
@@ -152,8 +152,8 @@ class CLI(unittest.TestCase):
     def test_dry_run_needs_no_sprite_cli_and_creates_nothing(self):
         self.env["SPRITE_BIN"] = str(self.directory / "missing")
         result = self.cli("create", "web", "acme/web", "--dry-run", "--no-tui", "--docker")
-        self.assertIn("Sprite: me-web", result.stdout)
-        self.assertIn("create --skip-console --label boxen me-web", result.stdout)
+        self.assertIn("Sprite: me-shell-web", result.stdout)
+        self.assertIn("create --skip-console --label boxen me-shell-web", result.stdout)
         self.assertIn("Plugins: " + ",".join(DEFAULTS + ["docker"]), result.stdout)
         self.assertIn("Privileges: privileged", result.stdout)
         self.assertIn("Network: defaults github.com", result.stdout)
@@ -216,7 +216,7 @@ class CLI(unittest.TestCase):
         self.assertIn("bxn env web XAI_API_KEY", result.stdout)
 
     def test_existing_names_and_failed_listings_stop_before_create(self):
-        self.sprites("me-web")
+        self.sprites("me-shell-web")
         self.assertIn("already exists", self.create(ok=False).stderr)
         self.sprites()
         self.env["FAKE_NOT_LOGGED_IN"] = "1"
@@ -233,8 +233,8 @@ class CLI(unittest.TestCase):
     def test_a_failed_step_explains_recovery_without_destroying_unasked(self):
         self.env["FAKE_FAIL"] = "core-user.sh"
         result = self.create(ok=False)
-        self.assertIn("me-web was created, but the shell setup failed", result.stderr)
-        self.assertIn("bxn delete me-web", result.stderr)
+        self.assertIn("me-shell-web was created, but the shell setup failed", result.stderr)
+        self.assertIn("bxn delete me-shell-web", result.stderr)
         self.assertNotIn("destroy", [c["args"][0] for c in self.calls()])
 
     def test_a_failed_clone_is_a_warning_with_the_fix(self):
@@ -294,7 +294,7 @@ class CLI(unittest.TestCase):
         (self.config / "handle").unlink()
         self.env["USER"] = "Ada.Lovelace"
         result = self.cli("create", "web", "acme/web", "--dry-run", "--no-tui")
-        self.assertIn("Sprite: ada-lovelace-web", result.stdout)
+        self.assertIn("Sprite: ada-lovelace-shell-web", result.stdout)
         self.assertEqual((self.config / "handle").read_text(), "ada-lovelace\n")
         self.cli("handle", "ada")
         self.assertEqual(self.cli("handle").stdout, "ada\n")
@@ -315,16 +315,39 @@ class CLI(unittest.TestCase):
         self.cli("exec", "web", "true")
         self.assertEqual([c["args"][2] for c in self.calls()], ["me-web", "new-web"])
         # A teammate's Sprite is never reached through a handle you never had.
-        self.assertIn("No Sprite named new-bob-web", self.cli("exec", "bob-web", "true", ok=False).stderr)
+        self.assertIn("No Sprite for bob-web", self.cli("exec", "bob-web", "true", ok=False).stderr)
         self.cli("handle", "me")
         self.cli("handle", "new")
         self.assertEqual((self.config / "former-handles").read_text(), "me\nnew\n")
+
+    def test_the_agent_follows_the_handle_in_the_name(self):
+        self.create("--claude")
+        self.assertEqual(self.calls()[0]["args"][-1], "me-claude-web")
+        # A project that already starts with the agent is not doubled.
+        self.cli("create", "claude-api", "acme/api", "--claude", "--no-tui", "--detach")
+        self.assertIn(["create", "--skip-console", "--label", "boxen", "me-claude-api"],
+                      [c["args"] for c in self.calls()])
+
+    def test_a_project_finds_its_sprite_whatever_the_agent(self):
+        self.sprites("me-claude-web")
+        self.cli("exec", "web", "true")
+        self.assertEqual(self.calls()[-1]["args"][:3], ["exec", "-s", "me-claude-web"])
+        # Two agents on one project: the project alone is ambiguous, AGENT-PROJECT is not.
+        self.sprites("me-claude-web", "me-codex-web")
+        err = self.cli("exec", "web", "true", ok=False).stderr
+        self.assertIn("More than one Sprite for web: me-claude-web me-codex-web", err)
+        self.cli("exec", "codex-web", "true")
+        self.assertEqual(self.calls()[-1]["args"][:3], ["exec", "-s", "me-codex-web"])
+        # Names from before the agent was in them still resolve.
+        self.sprites("me-web")
+        self.cli("exec", "web", "true")
+        self.assertEqual(self.calls()[-1]["args"][:3], ["exec", "-s", "me-web"])
 
     def test_mistyped_names_never_create(self):
         for args in (("nope",), ("shell", "nope"), ("run", "nope"), ("exec", "nope", "ls"), ("allow", "nope", "a.com"),
                      ("env", "nope", "X"), ("delete", "nope", "--yes"), ("checkpoint", "nope"), ("proxy", "nope", "3000")):
             result = self.cli(*args, ok=False, stdin="value\n")
-            self.assertIn("No Sprite named me-nope", result.stderr, args)
+            self.assertIn("No Sprite for nope", result.stderr, args)
         self.assertEqual(self.calls(), [])
 
     # --- day to day -----------------------------------------------------------
@@ -591,9 +614,9 @@ class CLI(unittest.TestCase):
 
     def test_a_failed_terminal_build_offers_to_destroy(self):
         self.env["FAKE_FAIL"] = "core-root.sh"
-        output, code = self.tty("create", "web", "acme/web", "--plugins", "none", script=[(b"Destroy me-web?", b"\r")])
+        output, code = self.tty("create", "web", "acme/web", "--plugins", "none", script=[(b"Destroy me-shell-web?", b"\r")])
         self.assertNotEqual(code, 0)
-        self.assertIn(["destroy", "--force", "me-web"], [c["args"] for c in self.calls()])
+        self.assertIn(["destroy", "--force", "me-shell-web"], [c["args"] for c in self.calls()])
 
     def test_claude_gets_a_sign_in_hint_instead_of_an_offer(self):
         self.sprites("me-web")

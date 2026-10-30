@@ -63,7 +63,10 @@ including your Claude login and tokens. Treat a Sprite like a shared server.
 | `check PROJECT` | Check the base tools and every chosen plugin |
 | `plugins`, `handle [NEW]`, `doctor` | List plugins; show or change your handle; check prerequisites |
 
-`PROJECT` is a Sprite's name without your handle; the full name works too.
+Sprites are named `HANDLE-AGENT-PROJECT`: `bxn create web --claude` makes
+`chad-claude-web`. Other commands take the project alone (`bxn shell web`)
+when one agent's Sprite has it; with two, name one as `claude-web`. The
+full name works too, and so do names from before the agent was in them.
 Commands that take one check that the Sprite exists first, so a typo never
 creates anything; only `create` does. Set `BOXEN_SPRITE_ORG` when you belong
 to more than one Fly organization.
@@ -83,7 +86,7 @@ bxn create web --dry-run              # the plan, without creating anything
 6 says:
 
 1. Checks that the `sprite` CLI is logged in and the name is free.
-2. Runs `sprite create --skip-console --label boxen HANDLE-PROJECT`.
+2. Runs `sprite create --skip-console --label boxen HANDLE-AGENT-PROJECT`.
 3. **Locks it down** before anything runs in it: posts the network policy and
    the privileges profile, then reads both back from the API (and the policy
    from the Sprite's own copy, where it has one) and checks that a host
@@ -209,7 +212,7 @@ when there is none), forwards them on the same numbers so Studio's links to
 the API still work, and prints a link for each:
 
 ~~~text
-Supabase in chad-web, on this machine while this runs:
+Supabase in chad-claude-web, on this machine while this runs:
   Studio    http://localhost:54323
   Mailpit   http://localhost:54324
   API       http://localhost:54321
