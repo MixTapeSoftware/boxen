@@ -50,6 +50,15 @@ class CLI(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout)
         return result
 
+    def skip_if_busy(self, *ports):
+        """bxn proxy refuses ports in use on this machine, so a test that needs
+        fixed ports free skips when something here already holds one."""
+        import socket
+        for port in ports:
+            with socket.socket() as probe:
+                if probe.connect_ex(("127.0.0.1", port)) == 0:
+                    self.skipTest(f"localhost:{port} is in use on this machine")
+
     def calls(self, everything=False):
         if not self.log.exists():
             return []
@@ -399,14 +408,54 @@ class CLI(unittest.TestCase):
             ["checkpoint", "create", "-s", "me-web", "--comment", "before upgrade"],
             ["checkpoint", "create", "-s", "me-web"], ["checkpoint", "list", "-s", "me-web"]])
 
+    def test_proxy_supabase_reads_the_repos_ports_and_prints_links(self):
+        self.skip_if_busy(55323, 54324, 55321, 55322, 3000)
+        self.sprites("me-web")
+        config = "[api]\nenabled = true\nport = 55321\n\n[db]\nport = 55322 # moved\nshadow_port = 55320\n" \
+                 "[db.pooler]\nport = 55329\n[studio]\nport = 55323\n"
+        self.env.update(FAKE_SUPABASE_CONFIG=config, FAKE_LISTENING="55321 55322 55323 54324")
+        result = self.cli("proxy", "web", "supabase")
+        self.assertEqual(self.calls()[-1]["args"], ["proxy", "-s", "me-web", "55323", "54324", "55321", "55322", "3000"])
+        self.assertIn("  Studio    http://localhost:55323\n  Mailpit   http://localhost:54324\n"
+                      "  API       http://localhost:55321\n  App       http://localhost:3000   (not running)\n"
+                      "  Database  postgresql://postgres:postgres@localhost:55322/postgres\n", result.stdout)
+        self.assertNotIn("not running yet", result.stderr)
+        # The probes never forward a port themselves.
+        self.assertTrue(all("--no-port-forward" in c["args"] for c in self.calls() if c["args"][0] == "exec"))
+
+    def test_proxy_supabase_says_when_the_stack_is_not_up(self):
+        self.skip_if_busy(54323, 54324, 54321, 54322, 3000)
+        self.sprites("me-web")
+        result = self.cli("proxy", "web", "supabase")
+        self.assertIn("No supabase/config.toml", result.stderr)
+        self.assertIn("Supabase is not running in me-web yet", result.stderr)
+        self.assertEqual(self.calls()[-1]["args"], ["proxy", "-s", "me-web", "54323", "54324", "54321", "54322", "3000"])
+
+    def test_proxy_refuses_a_port_in_use_on_this_machine(self):
+        import socket
+        listener = socket.socket()
+        listener.bind(("127.0.0.1", 0))
+        listener.listen()
+        self.addCleanup(listener.close)
+        busy = str(listener.getsockname()[1])
+        self.sprites("me-web")
+        result = self.cli("proxy", "web", busy, ok=False)
+        self.assertIn(f"localhost:{busy} is in use on this machine", result.stderr)
+        self.assertNotIn("proxy", [c["args"][0] for c in self.calls()])
+        config = f"[studio]\nport = {busy}\n"
+        self.env["FAKE_SUPABASE_CONFIG"] = config
+        result = self.cli("proxy", "web", "supabase", ok=False)
+        self.assertIn("supabase stop", result.stderr)
+
     def test_proxy_forwards_ports_and_the_supabase_preset(self):
+        self.skip_if_busy(5173, 3001, 54323, 54324, 54321, 54322, 3000)
         self.sprites("me-web")
         self.cli("proxy", "web", "5173", "3001:3000")
         self.cli("proxy", "web", "supabase")
         self.cli("proxy", "web", "http", ok=False)
-        self.assertEqual([c["args"] for c in self.calls()], [
+        self.assertEqual([c["args"] for c in self.calls() if c["args"][0] == "proxy"], [
             ["proxy", "-s", "me-web", "5173", "3001:3000"],
-            ["proxy", "-s", "me-web", "3000", "54321", "54323", "54324", "8000"]])
+            ["proxy", "-s", "me-web", "54323", "54324", "54321", "54322", "3000"]])
 
     def test_url_is_shown_and_never_made_public(self):
         self.sprites("me-web")
