@@ -124,12 +124,13 @@ picker or with `--plugins`. Pick `gh-auth` to clone a private repository.
 | gh-stack | GitHub's [gh stack](https://github.com/github/gh-stack) v0.2.1 and its agent skill |
 | skills | Every skill from [MixTapeSoftware/skills](https://github.com/MixTapeSoftware/skills), such as botfight, for Claude Code, Codex and Grok |
 | fzf-bat, just, glow | fzf 0.74.5 and bat 0.26.1 with the `f` and `gdiff` helpers, just 1.58.0, Glow 3.0.0 |
+| lazygit | lazygit 0.66.2, a terminal UI for Git |
 | mermaid-ascii, overmind | mermaid-ascii 1.4.0; Overmind 2.5.1 |
 | rtkplus | RTK 0.51.0 and its hook for Claude or Codex |
 | 1pass | 1Password CLI 2.30.0; asks for a service account token |
 | cubic | cubic, through the vendor's installer |
 | chromium | Playwright 1.61.1 with Chromium, and a matched Chrome for Testing and ChromeDriver (155.0.8059.39) |
-| nvchad | chadfennell/nvChad on Neovim v0.12.6, with tree-sitter parsers and six Mason language servers. The slowest |
+| nvchad | chadfennell/nvChad on Neovim v0.12.6, with tree-sitter parsers and six Mason language servers; adds lazygit. The slowest |
 | docker | Docker Engine, Compose and Buildx, with dockerd as a Sprite service. Experimental |
 | supabase-serve | Supabase's hosts and `bxn proxy PROJECT supabase`; adds docker |
 

@@ -271,7 +271,7 @@ class CLI(unittest.TestCase):
 
     def test_plugins_flags_and_agents(self):
         out = self.cli("create", "web", "acme/web", "--dry-run", "--plugins", "none", "--nvchad", "--gh-token").stdout
-        self.assertIn("Plugins: gh-auth,nvchad\n", out)
+        self.assertIn("Plugins: gh-auth,lazygit,nvchad\n", out)
         out = self.cli("create", "web", "acme/web", "--dry-run", "--plugins", "all").stdout
         self.assertIn("rtkplus left out for shell", out)
         self.assertNotIn("rtkplus", out.split("Plugins: ")[1].splitlines()[0])
