@@ -112,22 +112,23 @@ GitHub become https URLs.
 
 ## Plugins
 
-`bxn plugins` lists them. The ones marked default are preselected.
+`bxn plugins` lists them. None is selected unless you pick it, in the
+picker or with `--plugins`. Pick `gh-auth` to clone a private repository.
 
-| Plugin | Default | What it adds |
-|---|---|---|
-| gh-auth | yes | A fine-grained GitHub token for gh and Git, asked for at create |
-| gh-stack | yes | GitHub's [gh stack](https://github.com/github/gh-stack) v0.2.1 and its agent skill |
-| skills | yes | Every skill from [MixTapeSoftware/skills](https://github.com/MixTapeSoftware/skills), such as botfight, for Claude Code, Codex and Grok |
-| fzf-bat, just, glow | yes | fzf 0.74.5 and bat 0.26.1 with the `f` and `gdiff` helpers, just 1.58.0, Glow 3.0.0 |
-| mermaid-ascii, overmind | | mermaid-ascii 1.4.0; Overmind 2.5.1 |
-| rtkplus | | RTK 0.51.0 and its hook for Claude or Codex |
-| 1pass | | 1Password CLI 2.30.0; asks for a service account token |
-| cubic | | cubic, through the vendor's installer |
-| chromium | | Playwright 1.61.1 with Chromium, and a matched Chrome for Testing and ChromeDriver (155.0.8059.39) |
-| nvchad | | chadfennell/nvChad on Neovim v0.12.6, with tree-sitter parsers and six Mason language servers. The slowest |
-| docker | | Docker Engine, Compose and Buildx, with dockerd as a Sprite service. Experimental |
-| supabase-serve | | Supabase's hosts and `bxn proxy PROJECT supabase`; adds docker |
+| Plugin | What it adds |
+|---|---|
+| gh-auth | A fine-grained GitHub token for gh and Git, asked for at create |
+| gh-stack | GitHub's [gh stack](https://github.com/github/gh-stack) v0.2.1 and its agent skill |
+| skills | Every skill from [MixTapeSoftware/skills](https://github.com/MixTapeSoftware/skills), such as botfight, for Claude Code, Codex and Grok |
+| fzf-bat, just, glow | fzf 0.74.5 and bat 0.26.1 with the `f` and `gdiff` helpers, just 1.58.0, Glow 3.0.0 |
+| mermaid-ascii, overmind | mermaid-ascii 1.4.0; Overmind 2.5.1 |
+| rtkplus | RTK 0.51.0 and its hook for Claude or Codex |
+| 1pass | 1Password CLI 2.30.0; asks for a service account token |
+| cubic | cubic, through the vendor's installer |
+| chromium | Playwright 1.61.1 with Chromium, and a matched Chrome for Testing and ChromeDriver (155.0.8059.39) |
+| nvchad | chadfennell/nvChad on Neovim v0.12.6, with tree-sitter parsers and six Mason language servers. The slowest |
+| docker | Docker Engine, Compose and Buildx, with dockerd as a Sprite service. Experimental |
+| supabase-serve | Supabase's hosts and `bxn proxy PROJECT supabase`; adds docker |
 
 A plugin is a small file in `plugins/` that names the hosts it needs and the
 privileges profile it asks for, and runs scripts from `guest/` in the Sprite.

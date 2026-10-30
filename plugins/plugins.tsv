@@ -1,10 +1,10 @@
 Plugin	Default	What it adds
-gh-auth	yes	GitHub token for gh and Git; asked for at create, needed for private repos
-gh-stack	yes	GitHub's gh stack extension for stacked PRs, with its skill
-skills	yes	Every MixTapeSoftware skill, such as botfight, for every agent
-fzf-bat	yes	fzf and bat, with the f and gdiff helpers
-just	yes	just, the command runner
-glow	yes	Glow, a Markdown reader
+gh-auth	no	GitHub token for gh and Git; asked for at create, needed for private repos
+gh-stack	no	GitHub's gh stack extension for stacked PRs, with its skill
+skills	no	Every MixTapeSoftware skill, such as botfight, for every agent
+fzf-bat	no	fzf and bat, with the f and gdiff helpers
+just	no	just, the command runner
+glow	no	Glow, a Markdown reader
 mermaid-ascii	no	Mermaid diagrams as text
 overmind	no	Overmind process manager (with tmux)
 rtkplus	no	RTK and its hook for Claude or Codex

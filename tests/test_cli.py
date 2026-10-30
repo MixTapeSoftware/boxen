@@ -442,7 +442,8 @@ class CLI(unittest.TestCase):
 
     def test_plugins_lists_the_index(self):
         out = self.cli("plugins").stdout
-        self.assertRegex(out, r"gh-auth\s+default\s+GitHub token")
+        self.assertRegex(out, r"gh-auth\s{2,}GitHub token")
+        self.assertNotRegex(out, r"\sdefault\s")
         self.assertRegex(out, r"nvchad\s{2,}Neovim")
 
     def test_doctor(self):
@@ -502,12 +503,12 @@ class CLI(unittest.TestCase):
         return [(b"Space: choose", bytes([k])) for k in keys]
 
     def test_selector_chooses_an_agent_and_plugins(self):
-        # Rows: shell, claude, codex, grok, then plugins from gh-auth on; the
-        # defaults start chosen, so Space on gh-auth turns it off.
+        # Rows: shell, claude, codex, grok, then plugins from gh-auth on; none
+        # starts chosen, so Space on gh-auth turns it on.
         output, code = self.tty("create", "web", "acme/web", "--dry-run", script=self.keys(b"j jjj \r"))
         self.assertEqual(code, 0, output)
         self.assertIn("Agent: claude", output)
-        self.assertIn("Plugins: " + ",".join(d for d in DEFAULTS if d != "gh-auth") + "\r\n", output)
+        self.assertIn("Plugins: gh-auth\r\n", output)
 
     def test_selector_quits_without_creating(self):
         output, code = self.tty("create", "web", "acme/web", script=self.keys(b"q"))
