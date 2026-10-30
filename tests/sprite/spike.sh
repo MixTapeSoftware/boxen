@@ -158,11 +158,19 @@ for profile in standard privileged; do
   on sudo -n tail -20 /tmp/dockerd.log >>"$log" 2>&1
 done
 if on sh -c 'command -v sprite-env' >>"$log" 2>&1; then
-  # Stop the loop's dockerd, or docker info passes without the service.
-  on sudo -n sh -c 'pkill dockerd; sleep 1' >>"$log" 2>&1
+  # Stop the loop's dockerd, or docker info passes without the service. The
+  # service gets the docker plugin's daemon.json: overlay2, as Fly's guide says.
+  on sudo -n sh -c 'pkill dockerd; sleep 1; mkdir -p /etc/docker; printf "{\"storage-driver\": \"overlay2\"}\n" > /etc/docker/daemon.json' >>"$log" 2>&1
   on sh -c 'sprite-env services create dockerd --cmd /usr/bin/sudo --args "-n,$(PATH="$PATH:/usr/sbin"; command -v dockerd)" --duration 10s' >>"$log" 2>&1
   if on sh -c 'sleep 3; sudo -n docker info >/dev/null' >>"$log" 2>&1; then note '4 PASS dockerd runs as a sprite-env service through sudo'
   else note '4 FAIL dockerd as a sprite-env service through sudo'; fi
+  # docker info alone missed a netns bind-mount failure that only shows when a
+  # container starts; Compose stacks such as Supabase use their own network.
+  if on sh -c 'sudo -n docker run --rm alpine true && sudo -n docker network create spike-net >/dev/null &&
+       sudo -n docker run --rm --network spike-net alpine true' >>"$log" 2>&1; then
+    note '4 PASS the service dockerd runs containers, on the default and a user network'
+  else note '4 FAIL the service dockerd cannot run a container (see the log)'
+    on sudo -n tail -30 /.sprite/logs/services/dockerd.log >>"$log" 2>&1 || true; fi
 fi
 
 # 5. URL access: what the API reports, and what a non-admin member sees.

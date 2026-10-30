@@ -129,6 +129,9 @@ class Provisioning(ScriptCase):
         text = (GUEST / "docker-root.sh").read_text()
         self.assertIn("docker.io docker-compose-v2 docker-buildx", text)
         self.assertNotIn("sprite-env", text)
+        # Fly's guide: overlay2, not Docker 29's containerd image store.
+        self.assertIn('"storage-driver" = "overlay2"', text)
+        self.assertIn('{"storage-driver": "overlay2"}', text)
         # sprite-env is not on root's sudo PATH: the service is created as the user.
         service = (GUEST / "docker-service.sh").read_text()
         self.assertIn('dockerd="$(PATH="$PATH:/usr/sbin"; command -v dockerd)"', service)
