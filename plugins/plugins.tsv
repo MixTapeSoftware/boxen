@@ -5,6 +5,7 @@ skills	no	Every MixTapeSoftware skill, such as botfight, for every agent
 fzf-bat	no	fzf and bat, with the f and gdiff helpers
 just	no	just, the command runner
 glow	no	Glow, a Markdown reader
+lazygit	no	lazygit, a terminal UI for Git
 mermaid-ascii	no	Mermaid diagrams as text
 overmind	no	Overmind process manager (with tmux)
 rtkplus	no	RTK and its hook for Claude or Codex

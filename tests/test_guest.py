@@ -266,10 +266,10 @@ class Agents(ScriptCase):
     def test_check_covers_only_the_chosen_plugins(self):
         text = (GUEST / "check.sh").read_text()
         for plugin in [l.split("\t")[0] for l in (ROOT / "plugins/plugins.tsv").read_text().splitlines()[1:]]:
-            if plugin in ("supabase-serve", "just", "glow", "mermaid-ascii", "overmind"):
+            if plugin in ("supabase-serve", "just", "glow", "lazygit", "mermaid-ascii", "overmind"):
                 continue
             self.assertIn(f"has {plugin}", text, plugin)
-        self.assertIn("for tool in just glow mermaid-ascii overmind", text)
+        self.assertIn("for tool in just glow lazygit mermaid-ascii overmind", text)
         result = self.run_script("check.sh", ok=False, env={"BOXEN_AGENT": "nope", "BOXEN_PLUGINS": ""})
         self.assertIn("FAIL agent nope", result.stdout)
 
